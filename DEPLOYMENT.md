@@ -57,12 +57,12 @@ In your Netlify dashboard, go to Site settings > Environment variables and add:
 
 ### Required Variables:
 ```
-EMTEK_HUB_URL=https://emtekhub.netlify.app
-TOOL_SLUG=test-tool-template
+EMTEK_HUB_URL=https://your-emtek-hub-instance.com
+TOOL_SLUG=your-tool-slug
 NEXTAUTH_URL=https://your-site-name.netlify.app
 NEXTAUTH_SECRET=your-secure-random-string-here
-NEXT_PUBLIC_TOOL_NAME=Test Tool Template
-NEXT_PUBLIC_TOOL_DESCRIPTION=Testing the EMtek Hub SSO integration
+NEXT_PUBLIC_TOOL_NAME=Your Tool Name
+NEXT_PUBLIC_TOOL_DESCRIPTION=Description of your tool
 ```
 
 ### Generate NEXTAUTH_SECRET:
@@ -73,16 +73,16 @@ openssl rand -base64 32
 
 ## 🔗 Step 4: Register Your Tool with EMtek Hub
 
-1. Go to the [EMtek Hub Admin Panel](https://emtekhub.netlify.app/admin)
+1. Go to the [EMtek Hub Admin Panel](https://your-emtek-hub-instance.com/admin)
 2. Sign in with your admin credentials
 3. Navigate to "Tools Management"
 4. Click "Add New Tool"
 5. Fill in the details:
-   - **Tool Name**: Test Tool Template
-   - **Tool Slug**: test-tool-template
+   - **Tool Name**: Your Tool Name
+   - **Tool Slug**: your-tool-slug
    - **Tool URL**: https://your-site-name.netlify.app
    - **Callback URL**: https://your-site-name.netlify.app/auth/callback
-   - **Description**: Testing the EMtek Hub SSO integration
+   - **Description**: Description of your tool
    - **Status**: Active
 
 ## 🧪 Step 5: Test the Full Authentication Flow

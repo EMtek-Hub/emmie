@@ -11,12 +11,16 @@
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-[context.production.environment]
-  EMTEK_HUB_URL = "https://emtekhub.netlify.app"
-  TOOL_SLUG = "test-tool-template"
-  NEXTAUTH_SECRET = "your-production-nextauth-secret-change-this"
-  NEXT_PUBLIC_TOOL_NAME = "Test Tool Template"
-  NEXT_PUBLIC_TOOL_DESCRIPTION = "Testing the EMtek Hub SSO integration"
+# Environment variables must be set in Netlify dashboard
+# Do not hardcode secrets in this file for security reasons
+# 
+# Required environment variables:
+# - EMTEK_HUB_URL: URL of your EMtek Hub instance
+# - TOOL_SLUG: Unique identifier for your tool
+# - NEXTAUTH_URL: Your deployed site URL  
+# - NEXTAUTH_SECRET: Random secret for session encryption
+# - NEXT_PUBLIC_TOOL_NAME: Display name for your tool
+# - NEXT_PUBLIC_TOOL_DESCRIPTION: Brief description of your tool
 
 # Security headers
 [[headers]]
@@ -26,4 +30,4 @@
     X-Content-Type-Options = "nosniff"
     X-XSS-Protection = "1; mode=block"
     Referrer-Policy = "strict-origin-when-cross-origin"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://emtekhub.netlify.app"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' *"

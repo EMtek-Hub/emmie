@@ -23,18 +23,18 @@ Go to [app.netlify.com](https://app.netlify.com) and:
 In Netlify Site Settings > Environment Variables, add:
 
 ```
-EMTEK_HUB_URL=https://emtekhub.netlify.app
-TOOL_SLUG=test-tool-template
+EMTEK_HUB_URL=https://your-emtek-hub-instance.com
+TOOL_SLUG=your-tool-slug
 NEXTAUTH_URL=https://YOUR-SITE-NAME.netlify.app
 NEXTAUTH_SECRET=<generate with: openssl rand -base64 32>
-NEXT_PUBLIC_TOOL_NAME=Test Tool Template
-NEXT_PUBLIC_TOOL_DESCRIPTION=Testing the EMtek Hub SSO integration
+NEXT_PUBLIC_TOOL_NAME=Your Tool Name
+NEXT_PUBLIC_TOOL_DESCRIPTION=Description of your tool
 ```
 
 ### 4. Register with EMtek Hub
-Visit: https://emtekhub.netlify.app/admin
-- Tool Name: Test Tool Template
-- Tool Slug: test-tool-template
+Visit: https://your-emtek-hub-instance.com/admin
+- Tool Name: Your Tool Name
+- Tool Slug: your-tool-slug
 - Tool URL: https://YOUR-SITE-NAME.netlify.app
 - Callback URL: https://YOUR-SITE-NAME.netlify.app/auth/callback
 
