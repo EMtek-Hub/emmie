@@ -1,0 +1,57 @@
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700;800&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Figtree', sans-serif;
+  }
+  
+  * {
+    box-sizing: border-box;
+  }
+  
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: #ffffff;
+    color: #1f2937;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-emtek-navy text-white rounded-md px-4 py-2 font-semibold hover:bg-emtek-blue transition-colors duration-200;
+  }
+  
+  .btn-secondary {
+    @apply border border-emtek-blue text-emtek-blue hover:bg-emtek-blue hover:text-white rounded-md px-4 py-2 font-semibold transition-colors duration-200;
+  }
+  
+  .input-field {
+    @apply bg-white border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emtek-navy;
+  }
+  
+  .card {
+    @apply bg-white shadow-md rounded-lg p-6;
+  }
+  
+  .navbar {
+    @apply bg-emtek-navy text-white flex items-center px-6 py-3;
+  }
+  
+  .sidebar {
+    @apply bg-gray-50 border-r border-gray-200 h-screen w-64 p-4;
+  }
+  
+  .loading-spinner {
+    @apply animate-spin rounded-full h-8 w-8 border-b-2 border-emtek-navy;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
