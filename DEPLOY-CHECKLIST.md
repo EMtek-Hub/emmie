@@ -50,6 +50,7 @@ Visit: https://your-emtek-hub-instance.com/admin
   - API routes configured
 ✅ **Static optimization** - Pre-rendered HTML
 ✅ **Netlify configuration** - netlify.toml ready
+✅ **Secrets scanning disabled** - Template configuration values secured
 
 ## 🚀 Your Site Will Include
 
