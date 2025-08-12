@@ -13,7 +13,7 @@ import { getToolConfig } from "../lib/hubAuth";
  * - user: { name, email }
  * - links: array of { id, label, href, icon }
  */
-export default function Sidebar({ user, links = [] }) {
+export default function Sidebar({ user, links = [], onSignOut }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const toolConfig = getToolConfig();
@@ -30,10 +30,13 @@ export default function Sidebar({ user, links = [] }) {
   };
 
   const handleSignOut = () => {
-    // Clear localStorage session
-    localStorage.removeItem('hubSession');
-    // Redirect to homepage
-    router.push('/');
+    if (onSignOut) {
+      onSignOut();
+    } else {
+      // Fallback - Clear localStorage session and redirect
+      localStorage.removeItem('hubSession');
+      router.push('/');
+    }
   };
 
   return (
@@ -44,13 +47,14 @@ export default function Sidebar({ user, links = [] }) {
           <button
             onClick={() => setOpen(true)}
             aria-label="Open menu"
-            className="p-2 rounded-lg text-[#005b99] hover:bg-gray-100 transition-all duration-200 transform hover:scale-105"
+            className="p-2 rounded-lg hover:bg-gray-100 transition-all duration-200 transform hover:scale-105"
+            style={{ color: 'var(--emtek-navy)' }}
           >
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-3">
-            <Home className="w-6 h-6 text-[#005b99]" />
-            <span className="text-sm font-semibold text-[#005b99]">{toolConfig.name}</span>
+            <Home className="w-6 h-6" style={{ color: 'var(--emtek-navy)' }} />
+            <span className="text-sm font-semibold" style={{ color: 'var(--emtek-navy)' }}>{toolConfig.name}</span>
           </div>
         </div>
       </div>
@@ -62,12 +66,13 @@ export default function Sidebar({ user, links = [] }) {
           <div className="p-6">
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-3">
-                <Home className="w-8 h-8 text-[#005b99]" />
-                <span className="font-semibold text-[#005b99]">{toolConfig.name}</span>
+                <Home className="w-8 h-8" style={{ color: 'var(--emtek-navy)' }} />
+                <span className="font-semibold" style={{ color: 'var(--emtek-navy)' }}>{toolConfig.name}</span>
               </div>
               <button 
                 onClick={() => setOpen(false)} 
-                className="p-2 rounded-lg text-[#005b99] hover:bg-gray-100 transition-all duration-200 transform hover:scale-105"
+                className="p-2 rounded-lg hover:bg-gray-100 transition-all duration-200 transform hover:scale-105"
+                style={{ color: 'var(--emtek-navy)' }}
               >
                 <X className="w-5 h-5" />
               </button>
@@ -77,10 +82,11 @@ export default function Sidebar({ user, links = [] }) {
             <div className="mb-6">
               <button
                 onClick={handleBackToHub}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl text-[#005b99] hover:bg-gray-100 font-medium transition-all duration-200 transform hover:translate-x-1 group w-full text-left"
+                className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 font-medium transition-all duration-200 transform hover:translate-x-1 group w-full text-left"
+                style={{ color: 'var(--emtek-navy)' }}
               >
-                <ArrowLeft className="w-4 h-4 transition-colors duration-200 group-hover:text-[#003087]" />
-                <span className="transition-colors duration-200 group-hover:text-[#003087]">Back to Hub</span>
+                <ArrowLeft className="w-4 h-4 transition-colors duration-200" />
+                <span className="transition-colors duration-200">Back to Hub</span>
               </button>
             </div>
 
@@ -89,11 +95,12 @@ export default function Sidebar({ user, links = [] }) {
                 <Link 
                   key={l.id} 
                   href={l.href} 
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 text-[#005b99] font-medium transition-all duration-200 transform hover:translate-x-1 group"
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 font-medium transition-all duration-200 transform hover:translate-x-1 group"
+                  style={{ color: 'var(--emtek-navy)' }}
                   onClick={() => setOpen(false)}
                 >
-                  <span className="transition-colors duration-200 group-hover:text-[#003087]">{l.icon}</span>
-                  <span className="transition-colors duration-200 group-hover:text-[#003087]">{l.label}</span>
+                  <span className="transition-colors duration-200">{l.icon}</span>
+                  <span className="transition-colors duration-200">{l.label}</span>
                 </Link>
               ))}
             </nav>
@@ -102,7 +109,7 @@ export default function Sidebar({ user, links = [] }) {
             <div className="border-t border-gray-200 pt-6">
               <div className="bg-gray-50 rounded-xl p-4 mb-4">
                 <div className="text-xs text-gray-600 mb-1">Signed in as</div>
-                <div className="text-sm font-semibold text-[#005b99] truncate">
+                <div className="text-sm font-semibold truncate" style={{ color: 'var(--emtek-navy)' }}>
                   {user?.name || user?.email || "Guest"}
                 </div>
                 {user?.email && user?.name && (
@@ -111,7 +118,14 @@ export default function Sidebar({ user, links = [] }) {
               </div>
               <button
                 onClick={handleSignOut}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[#005b99] text-[#005b99] hover:bg-[#005b99] hover:text-white transition-all duration-200 transform hover:scale-105"
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border hover:text-white transition-all duration-200 transform hover:scale-105"
+                style={{ 
+                  borderColor: 'var(--emtek-navy)', 
+                  color: 'var(--emtek-navy)',
+                  '--hover-bg': 'var(--emtek-navy)'
+                }}
+                onMouseEnter={(e) => e.target.style.backgroundColor = 'var(--emtek-navy)'}
+                onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
               >
                 <LogOut className="w-4 h-4" />
                 <span className="font-medium">Sign out</span>

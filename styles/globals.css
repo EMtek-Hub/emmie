@@ -1,57 +1,119 @@
-@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;600;700;800&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  html {
-    font-family: 'Figtree', sans-serif;
-  }
-  
-  * {
-    box-sizing: border-box;
-  }
-  
-  body {
-    margin: 0;
-    padding: 0;
-    background-color: #ffffff;
-    color: #1f2937;
+/* Emtek design tokens */
+:root{
+  --emtek-navy: #01387C;
+  --emtek-blue: #1275BC;
+  --emtek-aqua: #AEDFE4;
+  --emtek-white: #FFFFFF;
+  --emtek-text-2: #444444;
+
+  --font-sans: 'Figtree', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+
+/* Global base */
+html, body, #__next {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: #f5f5f5;
+  color: var(--emtek-text-2);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Utility helpers used by components */
+.btn-primary {
+  @apply inline-flex items-center justify-center rounded-md px-4 py-2 font-semibold text-white;
+  background-color: var(--emtek-navy);
+}
+.btn-primary:hover {
+  background-color: var(--emtek-blue);
+}
+.btn-secondary {
+  @apply inline-flex items-center justify-center rounded-md px-4 py-2 font-semibold border;
+  border-color: var(--emtek-navy);
+  color: var(--emtek-navy);
+}
+.btn-secondary:hover {
+  background-color: var(--emtek-navy);
+  color: var(--emtek-white);
+}
+.btn-subtle {
+  @apply inline-flex items-center justify-center rounded-md px-3 py-2 font-medium;
+  background-color: rgba(174, 223, 228, 0.18);
+  color: var(--emtek-navy);
+}
+
+/* Card styles */
+.card {
+  background: var(--emtek-white);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(1,56,124,0.06);
+  border: 1px solid rgba(174,223,228,0.28);
+  padding: 1.25rem;
+}
+
+/* Navbar helpers */
+.app-header {
+  background: var(--emtek-white);
+  color: var(--emtek-navy);
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+
+/* Sidebar layout helpers */
+.app-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 768px) {
+  .app-layout {
+    grid-template-columns: 250px 1fr;
   }
 }
 
-@layer components {
-  .btn-primary {
-    @apply bg-emtek-navy text-white rounded-md px-4 py-2 font-semibold hover:bg-emtek-blue transition-colors duration-200;
-  }
-  
-  .btn-secondary {
-    @apply border border-emtek-blue text-emtek-blue hover:bg-emtek-blue hover:text-white rounded-md px-4 py-2 font-semibold transition-colors duration-200;
-  }
-  
-  .input-field {
-    @apply bg-white border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emtek-navy;
-  }
-  
-  .card {
-    @apply bg-white shadow-md rounded-lg p-6;
-  }
-  
-  .navbar {
-    @apply bg-emtek-navy text-white flex items-center px-6 py-3;
-  }
-  
-  .sidebar {
-    @apply bg-gray-50 border-r border-gray-200 h-screen w-64 p-4;
-  }
-  
-  .loading-spinner {
-    @apply animate-spin rounded-full h-8 w-8 border-b-2 border-emtek-navy;
-  }
+/* Small helpers */
+.container {
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+/* Headings */
+.h1 {
+  font-size: 36px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: #111827;
+}
+.h2 {
+  font-size: 28px;
+  line-height: 1.3;
+  font-weight: 600;
+}
+.h4 {
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+/* Loading spinner */
+.loading-spinner {
+  @apply animate-spin rounded-full h-8 w-8 border-b-2;
+  border-color: var(--emtek-navy);
+}
+
+/* Accessibility focus ring using emtek aqua */
+:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(174,223,228,0.35);
+  border-radius: 6px;
 }

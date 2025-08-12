@@ -1,22 +1,22 @@
 # 🚀 EMtek Tool Template
 
-A modern Next.js boilerplate template for creating tools that integrate seamlessly with the EMtek Hub SSO system.
+A modern Next.js boilerplate template for creating tools that integrate seamlessly with the EMtek Hub centralized OAuth2/OIDC authentication system.
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-14.0-black.svg)
 ![React](https://img.shields.io/badge/React-18.2-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 ## ✨ Features
 
-- 🔐 **EMtek Hub SSO Integration** - Seamless authentication through the central Hub
+- 🔐 **Centralized Authentication** - OAuth2/OIDC through EMtek Hub with Azure AD
+- 🍪 **Secure Sessions** - HttpOnly cookies on shared domain (no localStorage)
+- 🛡️ **Group-based Access Control** - Azure AD group to tool mapping
 - 🎨 **Modern UI** - Built with React, Next.js, and Tailwind CSS
-- 🛡️ **Access Control** - Automatic user permission verification via Hub API
 - 📱 **Responsive Design** - Mobile-first design following EMtek brand guidelines
-- ⚡ **Production Ready** - Optimized build configuration and deployment setup
+- ⚡ **Production Ready** - Server-side authentication and optimization
 - 🚀 **Netlify Ready** - Pre-configured for one-click deployment
-- 🎯 **TypeScript Support** - Full type safety (optional)
-- 📊 **Built-in Analytics** - Ready for monitoring integration
+- 🔒 **Zero Client-side Auth** - All authentication handled server-side
 
 ## 🚀 Quick Start
 
@@ -28,44 +28,74 @@ git clone https://github.com/EMtek-Hub/emtek-tool-template.git
 cd emtek-tool-template
 ```
 
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
+### 2. Install Dependencies
+```bash
+npm install
+```
 
-3. **Configure environment variables**
-   ```bash
-   cp .env.example .env.local
-   ```
-   
-   Update the following variables in `.env.local`:
-   - `TOOL_SLUG`: Unique identifier for your tool (must match Hub configuration)
-   - `NEXT_PUBLIC_TOOL_NAME`: Display name for your tool
-   - `NEXT_PUBLIC_TOOL_DESCRIPTION`: Brief description of your tool
-   - `NEXTAUTH_SECRET`: Random secret for session encryption
-   - `EMTEK_HUB_URL`: URL of your EMtek Hub instance (default: https://emtekhub.netlify.app)
+### 3. Configure Environment Variables
+```bash
+cp .env.example .env.local
+```
 
-4. **Start development server**
-   ```bash
-   npm run dev
-   ```
+Update the following variables in `.env.local`:
+```env
+# EMtek Hub Integration - Required
+HUB_URL=https://auth.emtek.com.au
+NEXT_PUBLIC_HUB_URL=https://auth.emtek.com.au
+NEXT_PUBLIC_TOOL_URL=https://your-tool.emtek.com.au
+TOOL_SLUG=your-tool-slug
 
-5. **Visit http://localhost:3000**
+# Tool Configuration - Required
+NEXT_PUBLIC_TOOL_NAME=Your Tool Name
+NEXT_PUBLIC_TOOL_DESCRIPTION=Description of your tool
+```
 
-## Project Structure
+### 4. Start Development Server
+```bash
+npm run dev
+```
+
+### 5. Visit http://localhost:3000
+
+## 🏗️ Architecture Overview
+
+### Centralized Authentication Flow
+
+```
+User → Tool → EMtek Hub OAuth2 → Azure AD → 
+Hub Session → Tool Access Check → Tool Dashboard
+```
+
+1. **User visits tool**: Tool checks for Hub session server-side
+2. **No session**: Redirects to Hub `/api/auth/signin?callbackUrl=toolUrl`
+3. **Hub authentication**: User signs in via Azure AD through Hub
+4. **Shared session**: Hub sets httpOnly cookie on `.emtek.com.au` domain
+5. **Tool access**: Tool verifies session and permissions via Hub API
+6. **Dashboard access**: User gains access to tool functionality
+
+### Key Security Features
+
+- **No client-side tokens**: All authentication tokens stay server-side
+- **HttpOnly cookies**: Sessions use secure, httpOnly cookies
+- **Shared domain sessions**: Single sign-on across `*.emtek.com.au`
+- **Server-side validation**: All auth checks happen server-side
+- **Group-based permissions**: Access controlled via Azure AD groups
+
+## 📁 Project Structure
 
 ```
 emtek-tool-template/
 ├── lib/
-│   ├── authConfig.js      # NextAuth configuration
-│   └── hubAuth.js         # EMtek Hub integration utilities
+│   └── hubAuth.js         # Hub authentication utilities
 ├── pages/
 │   ├── api/
-│   │   └── auth/
-│   │       └── [...nextauth].js  # NextAuth API route
-│   ├── _app.js            # App wrapper with session provider
-│   ├── index.js           # Landing page
-│   └── dashboard.js       # Main authenticated area
+│   │   └── example.js     # Protected API route example
+│   ├── _app.js            # App wrapper
+│   ├── index.js           # Landing page (with SSR auth check)
+│   └── dashboard.js       # Protected dashboard (requires auth)
+├── components/
+│   └── Sidebar.jsx        # Navigation component
 ├── styles/
 │   └── globals.css        # Global styles with EMtek branding
 ├── .env.example           # Environment variables template
@@ -74,91 +104,127 @@ emtek-tool-template/
 └── package.json           # Dependencies and scripts
 ```
 
-## EMtek Hub Integration
+## 🔧 Development Guide
 
-### Authentication Flow
+### Creating Protected Pages
 
-1. User visits your tool
-2. If not authenticated, they're redirected to EMtek Hub
-3. After Hub authentication, user returns to your tool
-4. Your tool verifies access permissions with Hub API
-5. User gains access to your tool's functionality
-
-### Access Control
-
-The template automatically:
-- Verifies user authentication via NextAuth sessions
-- Checks user permissions for your specific tool via Hub API
-- Handles access denied scenarios gracefully
-- Provides navigation back to the Hub
-
-### API Integration
-
-Use the provided utilities in `lib/hubAuth.js`:
+Use `requireHubAuth` for pages that need authentication:
 
 ```javascript
-import { verifyHubAccess, getToolConfig } from '../lib/hubAuth';
+// pages/my-protected-page.js
+import { requireHubAuth, getToolConfig } from '../lib/hubAuth';
 
-// Check if user has access to your tool
-const access = await verifyHubAccess(toolSlug, session);
+export default function MyPage({ session, toolConfig }) {
+  return (
+    <div>
+      <h1>Welcome {session.user.name}</h1>
+      {/* Your page content */}
+    </div>
+  );
+}
 
-// Get tool configuration
-const config = getToolConfig();
+export async function getServerSideProps(context) {
+  const authResult = await requireHubAuth(context);
+  
+  if (authResult.redirect) {
+    return authResult; // User will be redirected to Hub auth
+  }
 
-// Protect API routes
-import { withHubAuth } from '../lib/hubAuth';
-export default withHubAuth(async (req, res) => {
-  // Your protected API logic here
-  // req.user contains user info
-  // req.toolAccess contains access details
-});
+  const toolConfig = getToolConfig();
+  
+  return {
+    props: {
+      toolConfig,
+      session: authResult.props.session,
+    },
+  };
+}
 ```
 
-## Customization
+### Creating Protected API Routes
+
+Use `withHubAuth` middleware for API routes:
+
+```javascript
+// pages/api/my-endpoint.js
+import { withHubAuth } from '../../lib/hubAuth';
+
+async function handler(req, res) {
+  // Access authenticated user data
+  const user = req.user;
+  const session = req.session;
+  
+  res.json({ 
+    message: 'Hello from protected API',
+    user: user.name 
+  });
+}
+
+export default withHubAuth(handler);
+```
+
+### Available Authentication Utilities
+
+```javascript
+import { 
+  getHubSession,      // Get session from Hub (server-side only)
+  getUserPermissions, // Get user's tool permissions
+  checkToolAccess,    // Check if user has access to this tool
+  requireHubAuth,     // Protect pages with SSR
+  withHubAuth,        // Protect API routes
+  signOut,            // Sign out (client-side)
+  getToolConfig       // Get tool configuration
+} from '../lib/hubAuth';
+```
+
+## 🎨 Customization
 
 ### Styling
 
 The template uses Tailwind CSS with EMtek brand colors:
-- `emtek-navy`: #005b99 (Primary)
-- `emtek-blue`: #003087 (Secondary)
-- `emtek-orange`: #ef730b (Accent)
+- `--emtek-navy`: #005b99 (Primary)
+- `--emtek-blue`: #003087 (Secondary)  
+- `--emtek-orange`: #ef730b (Accent)
 
-Modify `tailwind.config.js` and `styles/globals.css` to customize the design.
+These are defined in `styles/globals.css` and can be customized.
 
-### Components
+### Adding Tool Functionality
 
-Replace the sample dashboard content in `pages/dashboard.js` with your tool's functionality:
+Replace the sample dashboard content in `pages/dashboard.js`:
 
 ```javascript
-// Remove sample cards and add your components
-<div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-  {/* Your tool-specific components */}
+{/* Replace sample cards with your tool's components */}
+<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+  <YourToolComponent />
+  <AnotherComponent />
 </div>
 ```
 
-### Navigation
+### Environment Configuration
 
-The template includes a basic navigation bar. Customize it in `pages/dashboard.js`:
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `HUB_URL` | Yes | Hub server URL (server-side) |
+| `NEXT_PUBLIC_HUB_URL` | Yes | Hub URL (client-side) |
+| `NEXT_PUBLIC_TOOL_URL` | Yes | This tool's URL |
+| `TOOL_SLUG` | Yes | Unique tool identifier |
+| `NEXT_PUBLIC_TOOL_NAME` | Yes | Tool display name |
+| `NEXT_PUBLIC_TOOL_DESCRIPTION` | Yes | Tool description |
 
-```javascript
-// Add navigation items, tool-specific actions, etc.
-<nav className="navbar">
-  {/* Your navigation content */}
-</nav>
+## 🚀 Deployment
+
+### Production Environment Variables
+
+Set these in your deployment platform:
+
+```env
+HUB_URL=https://auth.emtek.com.au
+NEXT_PUBLIC_HUB_URL=https://auth.emtek.com.au
+NEXT_PUBLIC_TOOL_URL=https://your-tool.emtek.com.au
+TOOL_SLUG=your-tool-slug
+NEXT_PUBLIC_TOOL_NAME=Your Tool Name
+NEXT_PUBLIC_TOOL_DESCRIPTION=Description of your tool
 ```
-
-## Deployment
-
-### Environment Variables
-
-Set these environment variables in your deployment platform:
-
-- `EMTEK_HUB_URL`: URL of your EMtek Hub instance
-- `TOOL_SLUG`: Your tool's unique identifier
-- `NEXTAUTH_URL`: Your tool's production URL
-- `NEXTAUTH_SECRET`: Random secret for session encryption
-- `NEXT_PUBLIC_TOOL_NAME`: Your tool's display name
-- `NEXT_PUBLIC_TOOL_DESCRIPTION`: Your tool's description
 
 ### Build Commands
 
@@ -168,75 +234,124 @@ npm run build
 
 # Start production server
 npm start
+
+# Export static files (if applicable)
+npm run export
 ```
 
-### Platform-Specific Deployment
+### Deployment Platforms
 
-The template works with any Next.js-compatible hosting platform:
-- Vercel (recommended)
-- Netlify
-- Heroku
-- AWS
-- Railway
+Compatible with any Next.js hosting platform:
+- **Vercel** (recommended)
+- **Netlify** 
+- **Railway**
+- **AWS Amplify**
+- **Custom servers**
 
-## Hub Admin Configuration
+## 🔧 Hub Configuration
 
-Before users can access your tool, an EMtek Hub administrator must:
+### 1. Tool Registration
 
-1. **Add your tool** to the Hub's tool registry
-2. **Configure tool settings** (name, description, URL, slug)
-3. **Assign user permissions** for who can access your tool
-4. **Test the integration** to ensure SSO works correctly
-
-Contact your Hub administrator with:
-- Tool name and description
-- Production URL
-- Desired tool slug
-- Initial list of users who should have access
-
-## Development Tips
-
-### Testing Hub Integration
-
-1. Set up a local Hub instance or use the staging environment
-2. Configure your tool in the Hub admin panel
-3. Test the authentication flow end-to-end
-4. Verify access control works for different user permission levels
-
-### API Routes
-
-Create protected API routes using the `withHubAuth` wrapper:
+Hub administrators need to register your tool:
 
 ```javascript
-// pages/api/my-endpoint.js
-import { withHubAuth } from '../../lib/hubAuth';
-
-export default withHubAuth(async (req, res) => {
-  // This code only runs for authenticated users with tool access
-  const user = req.user;
-  const toolAccess = req.toolAccess;
-  
-  res.json({ success: true, user });
-});
+// In Hub admin panel
+{
+  slug: "your-tool-slug",
+  name: "Your Tool Name", 
+  url: "https://your-tool.emtek.com.au",
+  status: "prod" // or "staging"
+}
 ```
 
-### Error Handling
+### 2. Azure AD Group Mapping
 
-The template includes error handling for common scenarios:
-- User not authenticated
-- User doesn't have tool access
-- Hub connection issues
-- Invalid tool configuration
+Map Azure AD groups to tool access:
 
-Customize error messages and handling in your components as needed.
+```javascript
+// Example mapping
+{
+  toolSlug: "your-tool-slug",
+  groups: [
+    "azure-group-id-1", // Full access group
+    "azure-group-id-2"  // Limited access group  
+  ]
+}
+```
 
-## Support
+### 3. CORS Configuration
 
-For issues with:
-- **EMtek Hub integration**: Contact your Hub administrator
-- **Template usage**: Check this README or create an issue
-- **Next.js/React questions**: Refer to official documentation
+Hub needs to allow your tool's domain:
 
-## License
+```javascript
+// Hub CORS settings
+{
+  origins: [
+    "https://your-tool.emtek.com.au",
+    "https://staging-tool.emtek.com.au"
+  ],
+  credentials: true
+}
+```
 
-MIT License - feel free to customize for your organization's needs.
+## 🧪 Testing
+
+### Local Development
+
+1. Set up Hub locally or use staging environment
+2. Configure your tool in Hub admin
+3. Update `.env.local` with Hub URLs
+4. Test full authentication flow
+
+### Testing Checklist
+
+- [ ] Unauthenticated user redirected to Hub
+- [ ] Hub authentication redirects back to tool
+- [ ] Dashboard loads with user information
+- [ ] API routes protected and working
+- [ ] Sign out redirects to Hub
+- [ ] Access denied for users without permissions
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+**"Authentication required" on API calls**
+- Check that `withHubAuth` is applied to API route
+- Verify Hub session cookies are being sent
+- Ensure CORS is configured correctly
+
+**Redirect loops**
+- Check `NEXT_PUBLIC_TOOL_URL` matches actual domain
+- Verify Hub callback URL configuration
+- Ensure tool is registered in Hub
+
+**Access denied for valid users**
+- Check Azure AD group mappings in Hub
+- Verify user is in correct Azure AD groups
+- Check tool status (prod vs staging)
+
+### Debug Mode
+
+Enable debug logging in development:
+
+```javascript
+// In pages/_app.js or individual components
+console.log('Session:', session);
+console.log('Tool config:', toolConfig);
+```
+
+## 📞 Support
+
+- **Hub Integration Issues**: Contact Hub administrators
+- **Template Questions**: Create GitHub issue
+- **Azure AD Problems**: Contact IT/Identity team
+- **Next.js Help**: See [Next.js documentation](https://nextjs.org/docs)
+
+## 📄 License
+
+MIT License - Feel free to customize for your organization's needs.
+
+---
+
+**⚡ New in v2.0.0**: Complete refactor to centralized OAuth2/OIDC authentication with secure cookie-based sessions and Azure AD group mapping.
