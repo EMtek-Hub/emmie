@@ -1,35 +1,13 @@
-import { useEffect } from 'react';
-import { useRouter } from 'next/router';
-import { getToolConfig, requireHubAuth } from '../lib/hubAuth';
+import { getToolConfig, requireSession } from '../lib/authServer';
 import { ArrowRight, Shield, Users, Zap, ExternalLink } from 'lucide-react';
 
-export default function HomePage({ toolConfig, session }) {
-  const router = useRouter();
-
-  // If user is already authenticated, redirect to dashboard
-  useEffect(() => {
-    if (session?.user) {
-      router.push('/dashboard');
-    }
-  }, [session, router]);
-
+export default function HomePage({ toolConfig }) {
   const handleSignIn = () => {
-    const hubUrl = process.env.NEXT_PUBLIC_HUB_URL || 'https://emtekhub.netlify.app';
-    const callbackUrl = `${window.location.origin}/auth/callback`;
+    const hubUrl = 'https://auth.emtek.com.au';
+    const toolOrigin = window.location.origin;
+    const callbackUrl = `${toolOrigin}/dashboard`;
     window.location.href = `${hubUrl}/api/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`;
   };
-
-  // Don't show the page if user is authenticated (will redirect)
-  if (session?.user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f5f5f5]">
-        <div className="text-center">
-          <div className="loading-spinner mb-4"></div>
-          <p className="text-[#444444]">Redirecting to dashboard...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#f5f5f5]">
@@ -193,27 +171,21 @@ export default function HomePage({ toolConfig, session }) {
 export async function getServerSideProps(context) {
   const toolConfig = getToolConfig();
   
-  // Try to get session - if user is authenticated, they'll be redirected to dashboard on client side
-  // This allows the home page to still be shown for unauthenticated users
-  try {
-    const authResult = await requireHubAuth(context);
-    if (authResult.props) {
-      // User is authenticated, pass session
-      return {
-        props: {
-          toolConfig,
-          session: authResult.props.session,
-        },
-      };
-    }
-  } catch (error) {
-    // User is not authenticated, show home page
+  // Check if user is already authenticated - if so, redirect to dashboard
+  const session = await requireSession(context.req);
+  if (session && session.user) {
+    return {
+      redirect: {
+        destination: '/dashboard',
+        permanent: false,
+      },
+    };
   }
   
+  // User is not authenticated, show home page
   return {
     props: {
       toolConfig,
-      session: null,
     },
   };
 }

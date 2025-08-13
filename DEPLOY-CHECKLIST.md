@@ -23,9 +23,8 @@ Go to [app.netlify.com](https://app.netlify.com) and:
 In Netlify Site Settings > Environment Variables, add:
 
 ```
-HUB_URL=https://emtekhub.netlify.app
-NEXT_PUBLIC_HUB_URL=https://emtekhub.netlify.app
-NEXT_PUBLIC_TOOL_URL=https://YOUR-SITE-NAME.netlify.app
+HUB_URL=https://auth.emtek.com.au
+TOOL_ORIGIN=https://YOUR-SITE-NAME.netlify.app
 TOOL_SLUG=your-tool-slug
 NEXT_PUBLIC_TOOL_NAME=Your Tool Name
 NEXT_PUBLIC_TOOL_DESCRIPTION=Description of your tool

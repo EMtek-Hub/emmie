@@ -1,22 +1,24 @@
-import { withHubAuth } from '../../lib/hubAuth';
+import { requireSession } from '../../lib/authServer';
 
-async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    // Access user information from the session
-    const user = req.user;
-    const session = req.session;
+    // Check authentication
+    const session = await requireSession(req);
+    if (!session) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
 
     // Example API logic here
     const data = {
       message: 'Hello from EMtek Tool Template API!',
       user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
+        id: session.user.id,
+        name: session.user.name,
+        email: session.user.email,
       },
       timestamp: new Date().toISOString(),
       authenticated: true,
@@ -29,6 +31,3 @@ async function handler(req, res) {
     res.status(500).json({ error: 'Internal server error' });
   }
 }
-
-// Protect this API route with Hub authentication
-export default withHubAuth(handler);
