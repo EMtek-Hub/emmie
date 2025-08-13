@@ -17,9 +17,9 @@ export default function HomePage({ toolConfig }) {
           {/* Logo and Tool Name */}
           <div className="mb-8">
             <img 
-              src="/emtek-hub-logo-light.svg" 
+              src="/emtek-hub-logo.svg" 
               alt="EMtek Hub" 
-              className="h-12 w-auto mx-auto mb-4"
+              className="h-16 w-auto mx-auto mb-4"
               onError={(e) => {
                 e.target.style.display = 'none';
               }}
