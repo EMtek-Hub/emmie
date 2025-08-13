@@ -3,7 +3,7 @@ import { ExternalLink } from 'lucide-react';
 
 export default function HomePage({ toolConfig }) {
   const handleSignIn = () => {
-    const hubUrl = 'https://auth.emtek.com.au';
+    const hubUrl = 'https://hub.emtek.au';
     const toolOrigin = window.location.origin;
     const callbackUrl = `${toolOrigin}/dashboard`;
     window.location.href = `${hubUrl}/api/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`;

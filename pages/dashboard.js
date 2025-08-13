@@ -45,49 +45,49 @@ export default function Dashboard({ toolConfig, session }) {
 
             {/* Dashboard Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-              {/* Sample Cards */}
+              {/* WorkChat Projects */}
               <div className="card">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold" style={{ color: 'var(--emtek-navy)' }}>Overview</h3>
+                  <h3 className="text-lg font-semibold" style={{ color: 'var(--emtek-navy)' }}>Projects</h3>
                   <BarChart3 className="w-6 h-6" style={{ color: 'var(--emtek-blue)' }} />
                 </div>
                 <p className="text-[#444444] text-sm">
-                  This is a sample dashboard card. Replace with your tool's content.
+                  AI-powered project workspaces with automated knowledge extraction and chat collaboration.
                 </p>
                 <div className="mt-4">
-                  <button className="btn-secondary text-sm">
-                    View Details
-                  </button>
+                  <a href="/projects" className="btn-secondary text-sm">
+                    View Projects
+                  </a>
                 </div>
               </div>
 
               <div className="card">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold" style={{ color: 'var(--emtek-navy)' }}>Documents</h3>
+                  <h3 className="text-lg font-semibold" style={{ color: 'var(--emtek-navy)' }}>New Project</h3>
                   <FileText className="w-6 h-6" style={{ color: 'var(--emtek-blue)' }} />
                 </div>
                 <p className="text-[#444444] text-sm">
-                  Manage your documents and files here.
+                  Create a new project workspace to start collaborating with AI assistance.
                 </p>
                 <div className="mt-4">
-                  <button className="btn-secondary text-sm">
-                    Browse Files
-                  </button>
+                  <a href="/projects/new" className="btn-secondary text-sm">
+                    Create Project
+                  </a>
                 </div>
               </div>
 
               <div className="card">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold" style={{ color: 'var(--emtek-navy)' }}>Notifications</h3>
+                  <h3 className="text-lg font-semibold" style={{ color: 'var(--emtek-navy)' }}>AI Features</h3>
                   <Bell className="w-6 h-6" style={{ color: 'var(--emtek-blue)' }} />
                 </div>
                 <p className="text-[#444444] text-sm">
-                  Stay updated with the latest notifications.
+                  Chat with AI, extract project knowledge, and get instant answers about your projects.
                 </p>
                 <div className="mt-4">
-                  <button className="btn-secondary text-sm">
-                    View All
-                  </button>
+                  <a href="/projects" className="btn-secondary text-sm">
+                    Get Started
+                  </a>
                 </div>
               </div>
             </div>

@@ -11,15 +11,23 @@
     "verify-build": "node scripts/verify-build.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.38.0",
+    "autoprefixer": "^10.4.16",
+    "lucide-react": "^0.294.0",
+    "markdown-it": "^13.0.2",
+    "markdown-it-container": "^3.0.0",
+    "markdown-it-footnote": "^3.0.3",
+    "markdown-it-task-lists": "^2.1.1",
     "next": "14.0.0",
+    "openai": "^4.20.0",
+    "postcss": "^8.4.32",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "lucide-react": "^0.294.0",
-    "tailwindcss": "^3.3.6",
-    "autoprefixer": "^10.4.16",
-    "postcss": "^8.4.32"
+    "tailwindcss": "^3.3.6"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "19.1.10",
     "eslint": "^8.53.0",
     "eslint-config-next": "14.0.0"
   },
