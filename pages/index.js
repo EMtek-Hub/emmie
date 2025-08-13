@@ -14,7 +14,7 @@ export default function HomePage({ toolConfig, session }) {
   }, [session, router]);
 
   const handleSignIn = () => {
-    const hubUrl = process.env.NEXT_PUBLIC_HUB_URL || 'https://auth.emtek.com.au';
+    const hubUrl = process.env.NEXT_PUBLIC_HUB_URL || 'https://emtekhub.netlify.app';
     const callbackUrl = `${window.location.origin}/dashboard`;
     window.location.href = `${hubUrl}/api/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`;
   };
