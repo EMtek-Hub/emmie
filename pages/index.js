@@ -1,4 +1,4 @@
-import { getToolConfig, requireSession } from '../lib/authServer';
+import { getToolConfig, getSession } from '../lib/authz';
 import { ArrowRight, Shield, Users, Zap, ExternalLink } from 'lucide-react';
 
 export default function HomePage({ toolConfig }) {
@@ -172,7 +172,7 @@ export async function getServerSideProps(context) {
   const toolConfig = getToolConfig();
   
   // Check if user is already authenticated - if so, redirect to dashboard
-  const session = await requireSession(context.req);
+  const session = await getSession(context.req);
   if (session && session.user) {
     return {
       redirect: {

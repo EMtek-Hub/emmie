@@ -1,4 +1,4 @@
-import { requireSession } from '../../lib/authServer';
+import { requireApiPermission } from '../../lib/apiAuth';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -6,11 +6,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Check authentication
-    const session = await requireSession(req);
-    if (!session) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    // Check authentication and per-tool permission
+    const session = await requireApiPermission(req, res, process.env.TOOL_SLUG);
+    if (!session) return; // Response already sent by requireApiPermission
 
     // Example API logic here
     const data = {

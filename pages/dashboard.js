@@ -1,4 +1,4 @@
-import { getToolConfig, requireHubAuth } from '../lib/authServer';
+import { getToolConfig, requireHubAuth } from '../lib/authz';
 import { BarChart3, FileText, Bell, Settings, CheckCircle } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 
@@ -131,15 +131,15 @@ export default function Dashboard({ toolConfig, session }) {
 }
 
 export async function getServerSideProps(context) {
-  // Require authentication for this page
-  const authResult = await requireHubAuth(context);
+  const toolConfig = getToolConfig();
   
-  // If redirect is returned, user will be redirected to Hub auth
+  // Require authentication and per-tool permission for this page
+  const authResult = await requireHubAuth(context, process.env.TOOL_SLUG);
+  
+  // If redirect is returned, user will be redirected to Hub auth or unauthorised
   if (authResult.redirect) {
     return authResult;
   }
-
-  const toolConfig = getToolConfig();
   
   return {
     props: {
