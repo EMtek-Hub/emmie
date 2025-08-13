@@ -5,7 +5,7 @@ export default function HomePage({ toolConfig }) {
   const handleSignIn = () => {
     const hubUrl = 'https://hub.emtek.au';
     const toolOrigin = window.location.origin;
-    const callbackUrl = `${toolOrigin}/dashboard`;
+    const callbackUrl = `${toolOrigin}/chat`;
     window.location.href = `${hubUrl}/api/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`;
   };
 
@@ -65,12 +65,12 @@ export default function HomePage({ toolConfig }) {
 export async function getServerSideProps(context) {
   const toolConfig = getToolConfig();
   
-  // Check if user is already authenticated - if so, redirect to dashboard
+  // Check if user is already authenticated - if so, redirect to chat
   const session = await getSession(context.req);
   if (session && session.user) {
     return {
       redirect: {
-        destination: '/dashboard',
+        destination: '/chat',
         permanent: false,
       },
     };

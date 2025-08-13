@@ -3,6 +3,12 @@ import { BarChart3, FileText, Bell, Settings, CheckCircle } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 
 export default function Dashboard({ toolConfig, session }) {
+  // Redirect to chat interface
+  if (typeof window !== 'undefined') {
+    window.location.href = '/chat';
+    return null;
+  }
+
   const handleSignOut = () => {
     // For client-side, we need to hardcode the Hub URL or pass it as prop
     window.location.href = `${hubUrl}/api/auth/signout`;

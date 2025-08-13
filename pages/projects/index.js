@@ -1,8 +1,7 @@
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { requireHubAuth } from '../../lib/authz';
-import { Plus, Calendar, Users, MessageSquare, BarChart3 } from 'lucide-react';
-import Sidebar from '../../components/Sidebar';
+import { Plus, Calendar, Users, MessageSquare, BarChart3, ArrowLeft, Sparkles } from 'lucide-react';
 
 export async function getServerSideProps(context) {
   const authResult = await requireHubAuth(context, process.env.TOOL_SLUG);
@@ -38,51 +37,74 @@ export default function Projects({ session }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#f5f5f5]">
-        <div className="app-layout">
-          <Sidebar user={session.user} onSignOut={handleSignOut} />
-          <main className="max-w-6xl mx-auto p-6">
-            <div className="animate-pulse">
-              <div className="h-8 bg-gray-200 rounded w-1/4 mb-6"></div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {[1, 2, 3].map(i => (
-                  <div key={i} className="card h-48">
-                    <div className="h-4 bg-gray-200 rounded w-3/4 mb-4"></div>
-                    <div className="h-3 bg-gray-200 rounded w-full mb-2"></div>
-                    <div className="h-3 bg-gray-200 rounded w-2/3"></div>
-                  </div>
-                ))}
+      <div className="min-h-screen bg-gray-50">
+        {/* Header Bar */}
+        <div className="bg-white border-b border-gray-200 px-6 py-4">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Link 
+                href="/chat"
+                className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5" />
+                <span>Back to Chat</span>
+              </Link>
+              <div className="text-gray-300">|</div>
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-6 h-6 text-blue-600" />
+                <h1 className="text-xl font-semibold text-gray-900">Projects</h1>
               </div>
             </div>
-          </main>
+          </div>
         </div>
+
+        <main className="max-w-7xl mx-auto px-6 py-8">
+          <div className="animate-pulse">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 h-48">
+                  <div className="h-4 bg-gray-200 rounded w-3/4 mb-4"></div>
+                  <div className="h-3 bg-gray-200 rounded w-full mb-2"></div>
+                  <div className="h-3 bg-gray-200 rounded w-2/3"></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </main>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f5f5]">
-      <div className="app-layout">
-        <Sidebar user={session.user} onSignOut={handleSignOut} />
-        <main className="max-w-6xl mx-auto p-6">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--emtek-navy)' }}>
-                Projects
-              </h1>
-              <p className="text-[#444444] mt-2">
-                Manage your project workspace with AI-powered collaboration
-              </p>
-            </div>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header Bar */}
+      <div className="bg-white border-b border-gray-200 px-6 py-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-4">
             <Link 
-              href="/projects/new" 
-              className="btn flex items-center gap-2"
+              href="/chat"
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
             >
-              <Plus className="w-4 h-4" />
-              New Project
+              <ArrowLeft className="w-5 h-5" />
+              <span>Back to Chat</span>
             </Link>
+            <div className="text-gray-300">|</div>
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-6 h-6 text-blue-600" />
+              <h1 className="text-xl font-semibold text-gray-900">Projects</h1>
+            </div>
           </div>
+          <Link 
+            href="/projects/new" 
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            New Project
+          </Link>
+        </div>
+      </div>
+
+      <main className="max-w-7xl mx-auto px-6 py-8">
 
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
@@ -176,8 +198,7 @@ export default function Projects({ session }) {
               ))}
             </div>
           )}
-        </main>
-      </div>
+      </main>
     </div>
   );
 }
