@@ -101,6 +101,8 @@ openssl rand -base64 32
 - Check the Netlify build logs for specific errors
 - Ensure all dependencies are in package.json
 - Verify Node.js version (should be 18+)
+- **"Missing script: build" Error**: If you see this error, it means Netlify didn't properly install dependencies before running the build. This is fixed by using `npm ci && npm run build` instead of just `npm run build` in netlify.toml
+- Run `npm run verify-build` locally to check your configuration
 
 **Authentication Issues:**
 - Verify NEXTAUTH_URL matches your deployed domain

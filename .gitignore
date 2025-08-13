@@ -41,3 +41,6 @@ next-env.d.ts
 
 # OS
 Thumbs.db
+
+# Local Netlify folder
+.netlify

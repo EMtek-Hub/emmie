@@ -1,8 +1,10 @@
 [build]
   # Directory to change to before starting a build
   base = "."
-  # Default build command for Next.js
-  command = "npm run build"
+  # Build command with explicit install and debugging
+  command = "npm ci && npm run build"
+  # Publish directory for Next.js
+  publish = ".next"
 
 [build.environment]
   # Node.js version
@@ -10,6 +12,8 @@
   # Disable secrets scanning for template repository
   # These are configuration values, not actual secrets
   SECRETS_SCAN_ENABLED = "false"
+  # Ensure npm install runs in production mode
+  NPM_FLAGS = "--production=false"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
