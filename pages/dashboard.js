@@ -1,11 +1,56 @@
-import { getToolConfig, requireHubAuth, signOut } from '../lib/hubAuth';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
+import { getToolConfig, getClientSession, signOut } from '../lib/hubAuth';
 import { BarChart3, FileText, Bell, Settings, CheckCircle } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 
-export default function Dashboard({ toolConfig, session }) {
+export default function Dashboard({ toolConfig }) {
+  const router = useRouter();
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Check for client-side session
+    const clientSession = getClientSession();
+    
+    if (clientSession) {
+      setSession(clientSession);
+      setLoading(false);
+    } else {
+      // No session found, redirect to signin
+      const hubUrl = process.env.NEXT_PUBLIC_HUB_URL || 'https://emtekhub.netlify.app';
+      const callbackUrl = `${window.location.origin}/auth/callback`;
+      window.location.href = `${hubUrl}/api/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+    }
+  }, []);
+
   const handleSignOut = () => {
+    // Clear local session
+    sessionStorage.removeItem('hub-session');
     signOut();
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#f5f5f5]">
+        <div className="text-center">
+          <div className="loading-spinner mb-4"></div>
+          <p className="text-[#444444]">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#f5f5f5]">
+        <div className="text-center">
+          <div className="loading-spinner mb-4"></div>
+          <p className="text-[#444444]">Redirecting to authentication...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#f5f5f5]">
@@ -129,21 +174,12 @@ export default function Dashboard({ toolConfig, session }) {
   );
 }
 
-export async function getServerSideProps(context) {
-  // Require authentication for this page
-  const authResult = await requireHubAuth(context);
-  
-  // If redirect is returned, user will be redirected to Hub auth
-  if (authResult.redirect) {
-    return authResult;
-  }
-
+export async function getServerSideProps() {
   const toolConfig = getToolConfig();
   
   return {
     props: {
       toolConfig,
-      session: authResult.props.session,
     },
   };
 }

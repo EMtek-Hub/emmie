@@ -15,7 +15,7 @@ export default function HomePage({ toolConfig, session }) {
 
   const handleSignIn = () => {
     const hubUrl = process.env.NEXT_PUBLIC_HUB_URL || 'https://emtekhub.netlify.app';
-    const callbackUrl = `${window.location.origin}/dashboard`;
+    const callbackUrl = `${window.location.origin}/auth/callback`;
     window.location.href = `${hubUrl}/api/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`;
   };
 
