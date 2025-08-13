@@ -57,18 +57,12 @@ In your Netlify dashboard, go to Site settings > Environment variables and add:
 
 ### Required Variables:
 ```
-EMTEK_HUB_URL=https://your-emtek-hub-instance.com
+HUB_URL=https://auth.emtek.com.au
+NEXT_PUBLIC_HUB_URL=https://auth.emtek.com.au
+NEXT_PUBLIC_TOOL_URL=https://your-site-name.netlify.app
 TOOL_SLUG=your-tool-slug
-NEXTAUTH_URL=https://your-site-name.netlify.app
-NEXTAUTH_SECRET=your-secure-random-string-here
 NEXT_PUBLIC_TOOL_NAME=Your Tool Name
 NEXT_PUBLIC_TOOL_DESCRIPTION=Description of your tool
-```
-
-### Generate NEXTAUTH_SECRET:
-Run this command to generate a secure secret:
-```bash
-openssl rand -base64 32
 ```
 
 ## 🔗 Step 4: Register Your Tool with EMtek Hub
@@ -105,7 +99,7 @@ openssl rand -base64 32
 - Run `npm run verify-build` locally to check your configuration
 
 **Authentication Issues:**
-- Verify NEXTAUTH_URL matches your deployed domain
+- Verify NEXT_PUBLIC_TOOL_URL matches your deployed domain
 - Check that your tool is properly registered in EMtek Hub
 - Ensure callback URLs match exactly
 

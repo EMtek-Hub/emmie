@@ -23,10 +23,10 @@ Go to [app.netlify.com](https://app.netlify.com) and:
 In Netlify Site Settings > Environment Variables, add:
 
 ```
-EMTEK_HUB_URL=https://your-emtek-hub-instance.com
+HUB_URL=https://auth.emtek.com.au
+NEXT_PUBLIC_HUB_URL=https://auth.emtek.com.au
+NEXT_PUBLIC_TOOL_URL=https://YOUR-SITE-NAME.netlify.app
 TOOL_SLUG=your-tool-slug
-NEXTAUTH_URL=https://YOUR-SITE-NAME.netlify.app
-NEXTAUTH_SECRET=<generate with: openssl rand -base64 32>
 NEXT_PUBLIC_TOOL_NAME=Your Tool Name
 NEXT_PUBLIC_TOOL_DESCRIPTION=Description of your tool
 ```
