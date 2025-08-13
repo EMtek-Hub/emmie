@@ -12,7 +12,7 @@ git push origin main
 ```
 
 ### 2. Deploy to Netlify
-Go to [app.netlify.com](https://app.netlify.com) and:
+Go to [app.netlify.com](https://app.emtek.au) and:
 - Click "New site from Git"
 - Connect your GitHub repository
 - Base directory: `emtek-tool-template`
@@ -23,8 +23,8 @@ Go to [app.netlify.com](https://app.netlify.com) and:
 In Netlify Site Settings > Environment Variables, add:
 
 ```
-HUB_URL=https://auth.emtek.com.au
-TOOL_ORIGIN=https://YOUR-SITE-NAME.netlify.app
+HUB_URL=https://hub.emtek.au
+TOOL_ORIGIN=https://YOUR-SITE-NAME.emtek.au
 TOOL_SLUG=your-tool-slug
 NEXT_PUBLIC_TOOL_NAME=Your Tool Name
 NEXT_PUBLIC_TOOL_DESCRIPTION=Description of your tool
@@ -34,8 +34,8 @@ NEXT_PUBLIC_TOOL_DESCRIPTION=Description of your tool
 Visit: https://your-emtek-hub-instance.com/admin
 - Tool Name: Your Tool Name
 - Tool Slug: your-tool-slug
-- Tool URL: https://YOUR-SITE-NAME.netlify.app
-- Callback URL: https://YOUR-SITE-NAME.netlify.app/auth/callback
+- Tool URL: https://YOUR-SITE-NAME.emtek.au
+- Callback URL: https://YOUR-SITE-NAME.emtek.au/auth/callback
 
 ## ✅ Build Verification
 

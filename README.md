@@ -41,8 +41,8 @@ cp .env.example .env.local
 Update the following variables in `.env.local`:
 ```env
 # EMtek Hub Integration - Required
-HUB_URL=https://auth.emtek.com.au
-NEXT_PUBLIC_HUB_URL=https://auth.emtek.com.au
+HUB_URL=https://hub.emtek.au
+NEXT_PUBLIC_HUB_URL=https://hub.emtek.au
 NEXT_PUBLIC_TOOL_URL=https://your-tool.emtek.com.au
 TOOL_SLUG=your-tool-slug
 
@@ -218,9 +218,9 @@ Replace the sample dashboard content in `pages/dashboard.js`:
 Set these in your deployment platform:
 
 ```env
-HUB_URL=https://auth.emtek.com.au
-NEXT_PUBLIC_HUB_URL=https://auth.emtek.com.au
-NEXT_PUBLIC_TOOL_URL=https://your-tool.emtek.com.au
+HUB_URL=https://hub.emtek.au
+NEXT_PUBLIC_HUB_URL=https://hub.emtek.au
+NEXT_PUBLIC_TOOL_URL=https://your-tool.emtek.au
 TOOL_SLUG=your-tool-slug
 NEXT_PUBLIC_TOOL_NAME=Your Tool Name
 NEXT_PUBLIC_TOOL_DESCRIPTION=Description of your tool
@@ -259,7 +259,7 @@ Hub administrators need to register your tool:
 {
   slug: "your-tool-slug",
   name: "Your Tool Name", 
-  url: "https://your-tool.emtek.com.au",
+  url: "https://your-tool.emtek.au",
   status: "prod" // or "staging"
 }
 ```

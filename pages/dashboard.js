@@ -5,7 +5,7 @@ import Sidebar from '../components/Sidebar';
 export default function Dashboard({ toolConfig, session }) {
   const handleSignOut = () => {
     // For client-side, we need to hardcode the Hub URL or pass it as prop
-    window.location.href = 'https://auth.emtek.com.au/api/auth/signout';
+    window.location.href = `${hubUrl}/api/auth/signout`;
   };
 
   return (

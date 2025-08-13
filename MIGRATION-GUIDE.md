@@ -47,8 +47,8 @@ NEXT_PUBLIC_TOOL_DESCRIPTION=Description of your tool
 
 **After (v2.0):**
 ```env
-HUB_URL=https://auth.emtek.com.au
-NEXT_PUBLIC_HUB_URL=https://auth.emtek.com.au
+HUB_URL=https://hub.emtek.au
+NEXT_PUBLIC_HUB_URL=https://hub.emtek.au
 NEXT_PUBLIC_TOOL_URL=https://your-tool.emtek.com.au
 TOOL_SLUG=your-tool-slug
 NEXT_PUBLIC_TOOL_NAME=Your Tool Name
