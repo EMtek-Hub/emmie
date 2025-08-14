@@ -10,7 +10,7 @@ export const openai = new OpenAI({
 });
 
 // Default models and configurations
-export const DEFAULT_CHAT_MODEL = 'gpt-4';
+export const DEFAULT_CHAT_MODEL = 'gpt-5';
 export const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small';
 
 /**

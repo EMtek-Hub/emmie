@@ -19,10 +19,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const { id: projectId } = req.query;
-  const { question } = req.body;
+  const { messages, question } = req.body;
 
-  if (!question || typeof question !== 'string') {
-    return res.status(400).json({ error: 'Question is required' });
+  // Support both formats - new messages array format and legacy question format
+  let userMessage: string;
+  if (messages && Array.isArray(messages) && messages.length > 0) {
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage.role === 'user') {
+      userMessage = lastMessage.content;
+    } else {
+      return res.status(400).json({ error: 'Last message must be from user' });
+    }
+  } else if (question && typeof question === 'string') {
+    userMessage = question;
+  } else {
+    return res.status(400).json({ error: 'Messages array or question is required' });
   }
 
   try {
@@ -79,6 +90,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // TODO: In future, add embeddings search here for RAG
     const ragSnippets: any[] = []; // Placeholder for RAG snippets
 
+    // Create or find existing chat session
+    let chatSessionId: string;
+    
+    // For now, create a new session for each conversation
+    // In future, you might want to maintain ongoing sessions
+    const { data: chatSession, error: chatError } = await supabaseAdmin
+      .from('chats')
+      .insert([{
+        project_id: projectId,
+        created_by: session.user.id,
+        title: userMessage.substring(0, 100) + (userMessage.length > 100 ? '...' : ''),
+        org_id: EMTEK_ORG_ID
+      }])
+      .select('id')
+      .single();
+
+    if (chatError || !chatSession) {
+      console.error('Chat session creation error:', chatError);
+      return res.status(500).json({ error: 'Failed to create chat session' });
+    }
+
+    chatSessionId = chatSession.id;
+
+    // Save user message
+    const { error: userMessageError } = await supabaseAdmin
+      .from('messages')
+      .insert([{
+        chat_id: chatSessionId,
+        role: 'user',
+        content_md: userMessage
+      }]);
+
+    if (userMessageError) {
+      console.error('User message save error:', userMessageError);
+    }
+
     // SSE setup
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
@@ -89,6 +136,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const send = (event: string, data: any) => {
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
+
+    let assistantResponse = '';
 
     try {
       // Build context for the AI
@@ -140,17 +189,17 @@ ${ragSnippets.length > 0 ? `## Additional Context\n${ragSnippets.map((s, i) => `
         messages: [
           {
             role: 'system',
-            content: `You are an AI assistant helping with project analysis. You have access to comprehensive project information including decisions, risks, deadlines, owners, metrics, and notes. 
+            content: `You are Emmie, an AI assistant helping with project analysis. You have access to comprehensive project information including decisions, risks, deadlines, owners, metrics, and notes. 
 
 Answer questions accurately based on the provided context. If you reference specific information, be clear about what type of fact it is (decision, risk, deadline, etc.). 
 
 If you reference RAG snippets, cite them as [S1], [S2], etc. 
 
-Use markdown formatting for clarity. Be concise but thorough.`
+Always use markdown formatting for clarity and better readability. Be concise but thorough.`
           },
           {
             role: 'user',
-            content: `Based on the following project information, please answer this question: "${question}"\n\n${context}`
+            content: `Based on the following project information, please answer this question: "${userMessage}"\n\n${context}`
           }
         ],
         temperature: 0.3,
@@ -160,7 +209,23 @@ Use markdown formatting for clarity. Be concise but thorough.`
       for await (const chunk of stream) {
         const delta = chunk.choices?.[0]?.delta?.content || '';
         if (delta) {
+          assistantResponse += delta;
           send('token', { delta });
+        }
+      }
+
+      // Save assistant response to database
+      if (assistantResponse) {
+        const { error: assistantMessageError } = await supabaseAdmin
+          .from('messages')
+          .insert([{
+            chat_id: chatSessionId,
+            role: 'assistant',
+            content_md: assistantResponse
+          }]);
+
+        if (assistantMessageError) {
+          console.error('Assistant message save error:', assistantMessageError);
         }
       }
 

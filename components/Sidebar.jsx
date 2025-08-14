@@ -1,32 +1,34 @@
 import Link from "next/link";
-import { Home, Grid, Settings, Menu, X, LogOut, ArrowLeft } from "lucide-react";
-import { useState } from "react";
+import { Home, Grid, Settings, X, LogOut, ArrowLeft, Sparkles } from "lucide-react";
 import { useRouter } from "next/router";
 import { getToolConfig } from "../lib/hubAuth";
 
 /**
- * Tool Sidebar Component matching Hub layout
- * - Desktop: fixed left column with hover animations
- * - Mobile: slide-over panel with smooth transitions
+ * Modern Sidebar Component
+ * - Desktop: fixed left column with smooth animations
+ * - Mobile: slide-over panel with backdrop blur
  *
  * Props:
  * - user: { name, email }
  * - links: array of { id, label, href, icon }
+ * - onSignOut: function to handle sign out
+ * - onClose: function to close mobile sidebar
+ * - isMobile: boolean for mobile variant
  */
-export default function Sidebar({ user, links = [], onSignOut }) {
-  const [open, setOpen] = useState(false);
+export default function Sidebar({ user, links = [], onSignOut, onClose, isMobile = false }) {
   const router = useRouter();
   const toolConfig = getToolConfig();
 
   const defaultLinks = [
     { id: "dashboard", label: "Dashboard", href: "/dashboard", icon: <Grid className="w-4 h-4" /> },
-    { id: "settings", label: "Settings", href: "/settings", icon: <Settings className="w-4 h-4" /> }
+    { id: "projects", label: "Projects", href: "/projects", icon: <Home className="w-4 h-4" /> },
+    { id: "chat", label: "AI Chat", href: "/chat", icon: <Sparkles className="w-4 h-4" /> },
   ];
 
   const navLinks = links.length ? links : defaultLinks;
 
   const handleBackToHub = () => {
-    window.location.href = toolConfig.hubUrl;
+    window.location.href = toolConfig.hubUrl || 'https://hub.emtek.au';
   };
 
   const handleSignOut = () => {
@@ -39,157 +41,193 @@ export default function Sidebar({ user, links = [], onSignOut }) {
     }
   };
 
-  return (
-    <>
-      {/* Mobile top bar button */}
-      <div className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 shadow-sm">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setOpen(true)}
-            aria-label="Open menu"
-            className="p-2 rounded-lg hover:bg-gray-100 transition-all duration-200 transform hover:scale-105"
-            style={{ color: 'var(--emtek-navy)' }}
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-          <div className="flex items-center gap-3">
-            <Home className="w-6 h-6" style={{ color: 'var(--emtek-navy)' }} />
-            <span className="text-sm font-semibold" style={{ color: 'var(--emtek-navy)' }}>{toolConfig.name}</span>
-          </div>
-        </div>
-      </div>
+  const handleLinkClick = () => {
+    if (isMobile && onClose) {
+      onClose();
+    }
+  };
 
-      {/* Slide-over for mobile */}
-      <div className={`fixed inset-0 z-50 md:hidden transition-opacity duration-300 ${open ? "opacity-100" : "opacity-0 pointer-events-none"}`} role="dialog" aria-modal="true">
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300" onClick={() => setOpen(false)} />
-        <aside className={`fixed left-0 top-0 bottom-0 w-80 bg-white shadow-2xl overflow-y-auto transform transition-transform duration-300 ease-out ${open ? "translate-x-0" : "-translate-x-full"}`}>
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-3">
-                <Home className="w-8 h-8" style={{ color: 'var(--emtek-navy)' }} />
-                <span className="font-semibold" style={{ color: 'var(--emtek-navy)' }}>{toolConfig.name}</span>
+  const isActive = (href) => {
+    if (href === '/') return router.pathname === href;
+    return router.pathname.startsWith(href);
+  };
+
+  if (isMobile) {
+    return (
+      <aside className="bg-white h-full shadow-strong overflow-y-auto animate-slide-up">
+        <div className="p-6">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-emtek-navy/10 rounded-xl">
+                <Sparkles className="w-6 h-6 text-emtek-navy" />
               </div>
-              <button 
-                onClick={() => setOpen(false)} 
-                className="p-2 rounded-lg hover:bg-gray-100 transition-all duration-200 transform hover:scale-105"
-                style={{ color: 'var(--emtek-navy)' }}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Back to Hub link */}
-            <div className="mb-6">
-              <button
-                onClick={handleBackToHub}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 font-medium transition-all duration-200 transform hover:translate-x-1 group w-full text-left"
-                style={{ color: 'var(--emtek-navy)' }}
-              >
-                <ArrowLeft className="w-4 h-4 transition-colors duration-200" />
-                <span className="transition-colors duration-200">Back to Hub</span>
-              </button>
-            </div>
-
-            <nav className="space-y-2 mb-8">
-              {navLinks.map((l) => (
-                <Link 
-                  key={l.id} 
-                  href={l.href} 
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 font-medium transition-all duration-200 transform hover:translate-x-1 group"
-                  style={{ color: 'var(--emtek-navy)' }}
-                  onClick={() => setOpen(false)}
-                >
-                  <span className="transition-colors duration-200">{l.icon}</span>
-                  <span className="transition-colors duration-200">{l.label}</span>
-                </Link>
-              ))}
-            </nav>
-
-            {/* User section with sign out */}
-            <div className="border-t border-gray-200 pt-6">
-              <div className="bg-gray-50 rounded-xl p-4 mb-4">
-                <div className="text-xs text-gray-600 mb-1">Signed in as</div>
-                <div className="text-sm font-semibold truncate" style={{ color: 'var(--emtek-navy)' }}>
-                  {user?.name || user?.email || "Guest"}
-                </div>
-                {user?.email && user?.name && (
-                  <div className="text-xs text-gray-600 truncate">{user.email}</div>
-                )}
+              <div>
+                <h1 className="font-bold text-emtek-navy">{toolConfig.name || 'Emmie'}</h1>
+                <p className="text-xs text-gray-500">AI Assistant</p>
               </div>
-              <button
-                onClick={handleSignOut}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border hover:text-white transition-all duration-200 transform hover:scale-105"
-                style={{ 
-                  borderColor: 'var(--emtek-navy)', 
-                  color: 'var(--emtek-navy)',
-                  '--hover-bg': 'var(--emtek-navy)'
-                }}
-                onMouseEnter={(e) => e.target.style.backgroundColor = 'var(--emtek-navy)'}
-                onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
-              >
-                <LogOut className="w-4 h-4" />
-                <span className="font-medium">Sign out</span>
-              </button>
             </div>
-          </div>
-        </aside>
-      </div>
-
-      {/* Desktop sidebar */}
-      <aside className="hidden md:flex flex-col bg-white border-r border-gray-200 h-screen sticky top-0 w-72 shadow-lg">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-center gap-3 group">
-            <Home className="w-8 h-8 text-[#005b99] transition-transform duration-200 group-hover:scale-105" />
-            <span className="font-semibold text-[#005b99] transition-transform duration-200 group-hover:scale-105">
-              {toolConfig.name}
-            </span>
-          </div>
-        </div>
-
-        {/* Back to Hub link */}
-        <div className="p-6 border-b border-gray-200">
-          <button
-            onClick={handleBackToHub}
-            className="flex items-center gap-3 px-4 py-3 rounded-xl text-[#005b99] hover:bg-gray-100 font-medium transition-all duration-200 transform hover:translate-x-1 group w-full text-left"
-          >
-            <ArrowLeft className="w-4 h-4 transition-colors duration-200 group-hover:text-[#003087]" />
-            <span className="transition-colors duration-200 group-hover:text-[#003087]">Back to Hub</span>
-          </button>
-        </div>
-
-        <nav className="flex-1 p-6 space-y-2">
-          {navLinks.map((l) => (
-            <Link 
-              key={l.id} 
-              href={l.href} 
-              className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 text-[#005b99] font-medium transition-all duration-200 transform hover:translate-x-1 group"
+            <button 
+              onClick={onClose} 
+              className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-all duration-200"
             >
-              <span className="transition-colors duration-200 group-hover:text-[#003087]">{l.icon}</span>
-              <span className="transition-colors duration-200 group-hover:text-[#003087]">{l.label}</span>
-            </Link>
-          ))}
-        </nav>
-
-        {/* User section with sign out */}
-        <div className="p-6 border-t border-gray-200">
-          <div className="bg-gray-50 rounded-xl p-4 mb-4">
-            <div className="text-xs text-gray-600 mb-1">Signed in as</div>
-            <div className="text-sm font-semibold text-[#005b99] truncate">
-              {user?.name || user?.email || "Guest"}
-            </div>
-            {user?.email && user?.name && (
-              <div className="text-xs text-gray-600 truncate">{user.email}</div>
-            )}
+              <X className="w-5 h-5" />
+            </button>
           </div>
-          <button
-            onClick={handleSignOut}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[#005b99] text-[#005b99] hover:bg-[#005b99] hover:text-white transition-all duration-200 transform hover:scale-105"
-          >
-            <LogOut className="w-4 h-4" />
-            <span className="font-medium">Sign out</span>
-          </button>
+
+          {/* Back to Hub */}
+          <div className="mb-6">
+            <button
+              onClick={handleBackToHub}
+              className="btn-ghost w-full justify-start gap-3"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back to Hub</span>
+            </button>
+          </div>
+
+          {/* Navigation */}
+          <nav className="space-y-1 mb-8">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-3 mb-3">
+              Navigation
+            </p>
+            {navLinks.map((link) => (
+              <Link 
+                key={link.id} 
+                href={link.href} 
+                onClick={handleLinkClick}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-all duration-200 group ${
+                  isActive(link.href) 
+                    ? 'bg-emtek-navy/10 text-emtek-navy shadow-sm' 
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-emtek-navy'
+                }`}
+              >
+                <span className={`transition-all duration-200 ${
+                  isActive(link.href) ? 'text-emtek-navy scale-110' : 'group-hover:scale-110'
+                }`}>
+                  {link.icon}
+                </span>
+                <span>{link.label}</span>
+                {isActive(link.href) && (
+                  <div className="ml-auto w-2 h-2 bg-emtek-navy rounded-full animate-scale-in"></div>
+                )}
+              </Link>
+            ))}
+          </nav>
+
+          {/* User section */}
+          <div className="border-t border-gray-100 pt-6 mt-auto">
+            <div className="card-body bg-gradient-to-br from-emtek-navy/5 to-emtek-blue/5 mb-4 rounded-2xl border border-emtek-navy/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-emtek-navy rounded-xl flex items-center justify-center text-white font-semibold">
+                  {(user?.name || user?.email || 'G')[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-emtek-navy truncate">
+                    {user?.name || user?.email || "Guest"}
+                  </div>
+                  {user?.email && user?.name && (
+                    <div className="text-xs text-gray-500 truncate">{user.email}</div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <button
+              onClick={handleSignOut}
+              className="btn-secondary w-full justify-center gap-2"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Sign out</span>
+            </button>
+          </div>
         </div>
       </aside>
-    </>
+    );
+  }
+
+  return (
+    <aside className="bg-white border-r border-gray-100 h-screen sticky top-0 flex flex-col shadow-soft animate-fade-in">
+      {/* Header */}
+      <div className="p-6 border-b border-gray-100">
+        <div className="flex items-center gap-3 group cursor-pointer" onClick={handleBackToHub}>
+          <div className="p-2 bg-emtek-navy/10 rounded-xl group-hover:bg-emtek-navy/20 transition-all duration-300">
+            <Sparkles className="w-6 h-6 text-emtek-navy group-hover:scale-110 transition-transform duration-300" />
+          </div>
+          <div>
+            <h1 className="font-bold text-emtek-navy group-hover:text-emtek-blue transition-colors duration-300">
+              {toolConfig.name || 'Emmie'}
+            </h1>
+            <p className="text-xs text-gray-500">AI Assistant</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Back to Hub */}
+      <div className="p-6 border-b border-gray-100">
+        <button
+          onClick={handleBackToHub}
+          className="btn-ghost w-full justify-start gap-3 group"
+        >
+          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform duration-200" />
+          <span>Back to Hub</span>
+        </button>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 p-6 space-y-1 overflow-y-auto">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-3 mb-4">
+          Navigation
+        </p>
+        {navLinks.map((link) => (
+          <Link 
+            key={link.id} 
+            href={link.href} 
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-all duration-200 group ${
+              isActive(link.href) 
+                ? 'bg-emtek-navy/10 text-emtek-navy shadow-sm border border-emtek-navy/20' 
+                : 'text-gray-600 hover:bg-gray-50 hover:text-emtek-navy hover:translate-x-1'
+            }`}
+          >
+            <span className={`transition-all duration-200 ${
+              isActive(link.href) ? 'text-emtek-navy scale-110' : 'group-hover:scale-110'
+            }`}>
+              {link.icon}
+            </span>
+            <span>{link.label}</span>
+            {isActive(link.href) && (
+              <div className="ml-auto w-2 h-2 bg-emtek-navy rounded-full animate-scale-in"></div>
+            )}
+          </Link>
+        ))}
+      </nav>
+
+      {/* User section */}
+      <div className="p-6 border-t border-gray-100 bg-gradient-to-t from-gray-50/50">
+        <div className="card-body bg-gradient-to-br from-emtek-navy/5 to-emtek-blue/5 mb-4 rounded-2xl border border-emtek-navy/10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-emtek-navy rounded-xl flex items-center justify-center text-white font-semibold shadow-sm">
+              {(user?.name || user?.email || 'G')[0].toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-emtek-navy truncate">
+                {user?.name || user?.email || "Guest"}
+              </div>
+              {user?.email && user?.name && (
+                <div className="text-xs text-gray-500 truncate">{user.email}</div>
+              )}
+            </div>
+          </div>
+        </div>
+        
+        <button
+          onClick={handleSignOut}
+          className="btn-secondary w-full justify-center gap-2"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>Sign out</span>
+        </button>
+      </div>
+    </aside>
   );
 }

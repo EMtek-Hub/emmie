@@ -1,119 +1,326 @@
-@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700;800&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Emtek design tokens */
-:root{
-  --emtek-navy: #01387C;
-  --emtek-blue: #1275BC;
-  --emtek-aqua: #AEDFE4;
-  --emtek-white: #FFFFFF;
-  --emtek-text-2: #444444;
+@layer base {
+  /* Global base styles */
+  html {
+    @apply scroll-smooth;
+  }
+  
+  html, body, #__next {
+    @apply h-full;
+  }
 
-  --font-sans: 'Figtree', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-}
+  body {
+    @apply font-sans bg-gray-50 text-gray-900 antialiased;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
 
-/* Global base */
-html, body, #__next {
-  height: 100%;
-}
+  /* Improved focus styles */
+  *:focus {
+    @apply outline-none ring-2 ring-emtek-aqua/50 ring-offset-2 ring-offset-white;
+  }
 
-body {
-  font-family: var(--font-sans);
-  background: #f5f5f5;
-  color: var(--emtek-text-2);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-/* Utility helpers used by components */
-.btn-primary {
-  @apply inline-flex items-center justify-center rounded-md px-4 py-2 font-semibold text-white;
-  background-color: var(--emtek-navy);
-}
-.btn-primary:hover {
-  background-color: var(--emtek-blue);
-}
-.btn-secondary {
-  @apply inline-flex items-center justify-center rounded-md px-4 py-2 font-semibold border;
-  border-color: var(--emtek-navy);
-  color: var(--emtek-navy);
-}
-.btn-secondary:hover {
-  background-color: var(--emtek-navy);
-  color: var(--emtek-white);
-}
-.btn-subtle {
-  @apply inline-flex items-center justify-center rounded-md px-3 py-2 font-medium;
-  background-color: rgba(174, 223, 228, 0.18);
-  color: var(--emtek-navy);
-}
-
-/* Card styles */
-.card {
-  background: var(--emtek-white);
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(1,56,124,0.06);
-  border: 1px solid rgba(174,223,228,0.28);
-  padding: 1.25rem;
-}
-
-/* Navbar helpers */
-.app-header {
-  background: var(--emtek-white);
-  color: var(--emtek-navy);
-  border-bottom: 1px solid rgba(0,0,0,0.04);
-}
-
-/* Sidebar layout helpers */
-.app-layout {
-  display: grid;
-  grid-template-columns: 1fr;
-}
-@media (min-width: 768px) {
-  .app-layout {
-    grid-template-columns: 250px 1fr;
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    @apply w-2;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-100;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded-full;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400;
   }
 }
 
-/* Small helpers */
-.container {
-  max-width: 1100px;
-  margin-left: auto;
-  margin-right: auto;
-  padding-left: 1rem;
-  padding-right: 1rem;
+@layer components {
+  /* Modern Button System */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-emtek-navy text-white hover:bg-emtek-blue focus:ring-emtek-blue/50 shadow-sm hover:shadow-md;
+  }
+
+  .btn-secondary {
+    @apply btn bg-white text-emtek-navy border border-emtek-navy/20 hover:bg-emtek-navy hover:text-white focus:ring-emtek-navy/50 shadow-sm hover:shadow-md;
+  }
+
+  .btn-ghost {
+    @apply btn text-emtek-navy hover:bg-emtek-navy/5 focus:ring-emtek-navy/50;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700 focus:ring-red-500/50 shadow-sm hover:shadow-md;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3 text-base;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  /* Modern Card System */
+  .card {
+    @apply bg-white rounded-2xl shadow-soft border border-gray-100/50 backdrop-blur-sm transition-all duration-200;
+  }
+
+  .card-hover {
+    @apply card hover:shadow-medium hover:-translate-y-0.5;
+  }
+
+  .card-interactive {
+    @apply card-hover cursor-pointer hover:border-emtek-aqua/30;
+  }
+
+  .card-body {
+    @apply p-6;
+  }
+
+  .card-header {
+    @apply px-6 py-4 border-b border-gray-100;
+  }
+
+  .card-footer {
+    @apply px-6 py-4 border-t border-gray-100 bg-gray-50/50 rounded-b-2xl;
+  }
+
+  /* Form Controls */
+  .input {
+    @apply block w-full rounded-xl border border-gray-200 px-4 py-3 text-sm transition-all duration-200 placeholder:text-gray-400 focus:border-emtek-blue focus:ring-2 focus:ring-emtek-blue/20 disabled:bg-gray-50 disabled:text-gray-500;
+  }
+
+  .textarea {
+    @apply input resize-none;
+  }
+
+  .select {
+    @apply input pr-10 appearance-none bg-no-repeat;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 0.75rem center;
+    background-size: 1.25em 1.25em;
+  }
+
+  /* Badge System */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium;
+  }
+
+  .badge-primary {
+    @apply badge bg-emtek-navy/10 text-emtek-navy;
+  }
+
+  .badge-success {
+    @apply badge bg-green-100 text-green-800;
+  }
+
+  .badge-warning {
+    @apply badge bg-yellow-100 text-yellow-800;
+  }
+
+  .badge-danger {
+    @apply badge bg-red-100 text-red-800;
+  }
+
+  .badge-secondary {
+    @apply badge bg-gray-100 text-gray-700;
+  }
+
+  /* Loading States */
+  .loading-spinner {
+    @apply animate-spin rounded-full border-2 border-gray-200 border-t-emtek-navy;
+  }
+
+  .skeleton {
+    @apply animate-pulse bg-gray-200 rounded;
+  }
+
+  .shimmer {
+    @apply relative overflow-hidden before:absolute before:inset-0 before:-translate-x-full before:animate-shimmer before:bg-gradient-to-r before:from-transparent before:via-white/20 before:to-transparent;
+  }
+
+  /* Layout Helpers */
+  .app-layout {
+    @apply grid grid-cols-1 md:grid-cols-[280px_1fr] min-h-screen;
+  }
+
+  .app-header {
+    @apply bg-white/80 backdrop-blur-sm border-b border-gray-100 sticky top-0 z-40;
+  }
+
+  .container-app {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  /* Typography Scale */
+  .text-display {
+    @apply text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-gray-900;
+  }
+
+  .text-headline {
+    @apply text-2xl sm:text-3xl font-bold tracking-tight text-gray-900;
+  }
+
+  .text-title {
+    @apply text-xl font-semibold text-gray-900;
+  }
+
+  .text-body {
+    @apply text-sm text-gray-600 leading-relaxed;
+  }
+
+  .text-caption {
+    @apply text-xs text-gray-500;
+  }
+
+  /* Animation utilities */
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.2s ease-out;
+  }
+
+  /* Keyframe definitions */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes scaleIn {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  /* Glass effect */
+  .glass {
+    @apply bg-white/80 backdrop-blur-sm border border-white/20;
+  }
+
+  .glass-dark {
+    @apply bg-gray-900/80 backdrop-blur-sm border border-gray-700/20;
+  }
 }
 
-/* Headings */
-.h1 {
-  font-size: 36px;
-  line-height: 1.2;
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  color: #111827;
-}
-.h2 {
-  font-size: 28px;
-  line-height: 1.3;
-  font-weight: 600;
-}
-.h4 {
-  font-size: 18px;
-  line-height: 1.4;
-  font-weight: 500;
-}
+@layer utilities {
+  /* Text truncation helpers */
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
 
-/* Loading spinner */
-.loading-spinner {
-  @apply animate-spin rounded-full h-8 w-8 border-b-2;
-  border-color: var(--emtek-navy);
-}
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
 
-/* Accessibility focus ring using emtek aqua */
-:focus {
-  outline: none;
-  box-shadow: 0 0 0 4px rgba(174,223,228,0.35);
-  border-radius: 6px;
+  /* Safe area padding for mobile */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Hide scrollbar while keeping functionality */
+  .scrollbar-hidden {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Force code blocks to use white text on dark background */
+  pre code,
+  pre code *,
+  pre span,
+  pre .token,
+  pre .keyword,
+  pre .string,
+  pre .function,
+  pre .number,
+  pre .operator,
+  pre .comment,
+  pre .punctuation,
+  pre .variable,
+  pre .property,
+  pre .selector,
+  pre .attr-name,
+  pre .attr-value,
+  pre .tag,
+  pre .hljs-keyword,
+  pre .hljs-string,
+  pre .hljs-function,
+  pre .hljs-number,
+  pre .hljs-comment,
+  pre .hljs-variable,
+  pre .hljs-literal,
+  pre .hljs-built_in,
+  pre .hljs-title {
+    color: white !important;
+    background: transparent !important;
+    text-shadow: none !important;
+  }
+
+  /* Ensure code blocks have proper styling */
+  pre {
+    background: rgb(17 24 39) !important; /* gray-900 */
+    color: white !important;
+    font-size: 1.125rem !important; /* Larger font - text-lg */
+    line-height: 1.75 !important; /* More spacing */
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+  }
+
+  /* Override any markdown-it generated highlighting */
+  .prose pre,
+  .prose pre code,
+  .prose pre code *,
+  .prose pre span {
+    color: white !important;
+    background: rgb(17 24 39) !important;
+  }
 }

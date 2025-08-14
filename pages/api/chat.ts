@@ -81,8 +81,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       // 4) Stream from OpenAI
       const systemPrompt = projectId 
-        ? `You are WorkChat Projects, an AI assistant helping with project management and collaboration. Keep answers concise and helpful. Use markdown formatting. When discussing projects, focus on actionable insights, decisions, risks, and deadlines.`
-        : `You are WorkChat, a helpful AI assistant. Keep answers concise and use markdown formatting.`;
+        ? `You are Emmie, an AI assistant helping with project management and collaboration. Keep answers concise and helpful. Always use markdown formatting for better readability. When discussing projects, focus on actionable insights, decisions, risks, and deadlines.`
+        : `You are Emmie, a helpful AI assistant. Keep answers concise and always use markdown formatting for better readability.`;
 
       const stream = await openai.chat.completions.create({
         model: DEFAULT_CHAT_MODEL,

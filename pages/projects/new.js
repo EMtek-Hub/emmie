@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { requireHubAuth } from '../../lib/authz';
-import { ArrowLeft, Plus } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, MessageSquare, Brain, Sparkles } from 'lucide-react';
 import Link from 'next/link';
-import Sidebar from '../../components/Sidebar';
+import { DashboardLayout } from '../../components/Layout';
 
 export async function getServerSideProps(context) {
   const authResult = await requireHubAuth(context, process.env.TOOL_SLUG);
@@ -67,138 +67,211 @@ export default function NewProject({ session }) {
   };
 
   return (
-    <div className="min-h-screen bg-[#f5f5f5]">
-      <div className="app-layout">
-        <Sidebar user={session.user} onSignOut={handleSignOut} />
-        <main className="max-w-3xl mx-auto p-6">
-          {/* Header */}
-          <div className="mb-8">
-            <div className="flex items-center gap-4 mb-4">
-              <Link 
-                href="/projects" 
-                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4" />
-              </Link>
-              <h1 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--emtek-navy)' }}>
-                Create New Project
-              </h1>
+    <DashboardLayout 
+      title="Create New Project - Emmie" 
+      user={session.user} 
+      onSignOut={handleSignOut}
+    >
+      {/* Header */}
+      <div className="app-header animate-slide-up">
+        <div className="container-app py-4">
+          <div className="flex items-center gap-4">
+            <Link 
+              href="/projects" 
+              className="btn-ghost gap-2"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back to Projects</span>
+            </Link>
+            <div className="text-gray-300">|</div>
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-green-100 rounded-xl">
+                <Plus className="w-5 h-5 text-green-600" />
+              </div>
+              <h1 className="text-headline">Create New Project</h1>
             </div>
-            <p className="text-[#444444]">
-              Set up a new project workspace for AI-powered collaboration and knowledge management.
-            </p>
+          </div>
+        </div>
+      </div>
+
+      <main className="container-app py-8 max-w-4xl animate-fade-in">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Main Form */}
+          <div className="lg:col-span-2">
+            <div className="card">
+              <div className="card-header">
+                <h2 className="text-title">Project Details</h2>
+                <p className="text-body mt-1">
+                  Set up your AI-powered workspace for intelligent collaboration
+                </p>
+              </div>
+              
+              <form onSubmit={handleSubmit}>
+                <div className="card-body space-y-6">
+                  {error && (
+                    <div className="p-4 bg-red-50 border border-red-200 rounded-xl animate-slide-up">
+                      <p className="text-red-800 text-sm">{error}</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <label htmlFor="name" className="block text-sm font-semibold text-gray-900 mb-2">
+                      Project Name *
+                    </label>
+                    <input
+                      type="text"
+                      id="name"
+                      name="name"
+                      required
+                      value={formData.name}
+                      onChange={handleChange}
+                      className="input"
+                      placeholder="Enter a descriptive project name..."
+                      disabled={loading}
+                    />
+                    <p className="mt-2 text-caption">
+                      Choose a clear, descriptive name that represents your project's purpose
+                    </p>
+                  </div>
+
+                  <div>
+                    <label htmlFor="description" className="block text-sm font-semibold text-gray-900 mb-2">
+                      Description
+                    </label>
+                    <textarea
+                      id="description"
+                      name="description"
+                      rows={4}
+                      value={formData.description}
+                      onChange={handleChange}
+                      className="textarea"
+                      placeholder="Describe your project goals, scope, and objectives..."
+                      disabled={loading}
+                    />
+                    <p className="mt-2 text-caption">
+                      Optional: Provide context to help AI understand your project better
+                    </p>
+                  </div>
+                </div>
+
+                {/* Form Actions */}
+                <div className="card-footer">
+                  <div className="flex gap-3">
+                    <Link 
+                      href="/projects"
+                      className="btn-secondary"
+                    >
+                      Cancel
+                    </Link>
+                    <button
+                      type="submit"
+                      disabled={loading || !formData.name.trim()}
+                      className="btn-primary gap-2"
+                    >
+                      {loading ? (
+                        <>
+                          <div className="loading-spinner w-4 h-4"></div>
+                          <span>Creating...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-4 h-4" />
+                          <span>Create Project</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
           </div>
 
-          {/* Form */}
-          <div className="card">
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {error && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-red-800 text-sm">{error}</p>
+          {/* Sidebar Info */}
+          <div className="space-y-6">
+            {/* Features Card */}
+            <div className="card">
+              <div className="card-body">
+                <div className="flex items-center gap-2 mb-4">
+                  <Sparkles className="w-5 h-5 text-emtek-navy" />
+                  <h3 className="text-title">AI-Powered Features</h3>
                 </div>
-              )}
-
-              <div>
-                <label htmlFor="name" className="block text-sm font-semibold text-gray-900 mb-2">
-                  Project Name *
-                </label>
-                <input
-                  type="text"
-                  id="name"
-                  name="name"
-                  required
-                  value={formData.name}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Enter project name..."
-                  disabled={loading}
-                />
-                <p className="mt-1 text-xs text-gray-600">
-                  Choose a clear, descriptive name for your project
-                </p>
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <MessageSquare className="w-4 h-4 text-emtek-blue mt-0.5" />
+                    <div>
+                      <p className="font-medium text-sm text-gray-900">Smart Conversations</p>
+                      <p className="text-caption">AI-powered chat for project discussions</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <Brain className="w-4 h-4 text-emtek-navy mt-0.5" />
+                    <div>
+                      <p className="font-medium text-sm text-gray-900">Knowledge Extraction</p>
+                      <p className="text-caption">Automatic capture of decisions, risks, and deadlines</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <FileText className="w-4 h-4 text-green-600 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-sm text-gray-900">Smart Documentation</p>
+                      <p className="text-caption">Organized knowledge base that grows over time</p>
+                    </div>
+                  </div>
+                </div>
               </div>
+            </div>
 
-              <div>
-                <label htmlFor="description" className="block text-sm font-semibold text-gray-900 mb-2">
-                  Description
-                </label>
-                <textarea
-                  id="description"
-                  name="description"
-                  rows={4}
-                  value={formData.description}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-vertical"
-                  placeholder="Describe your project goals, scope, and objectives..."
-                  disabled={loading}
-                />
-                <p className="mt-1 text-xs text-gray-600">
-                  Optional: Provide context that will help the AI understand your project better
-                </p>
+            {/* Getting Started Card */}
+            <div className="card">
+              <div className="card-body">
+                <h3 className="text-title mb-4">Getting Started</h3>
+                <div className="space-y-4">
+                  <div className="flex gap-3">
+                    <div className="w-6 h-6 bg-emtek-navy text-white rounded-full flex items-center justify-center text-xs font-semibold">
+                      1
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm text-gray-900">Start a conversation</p>
+                      <p className="text-caption">Begin discussing your project goals and requirements</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <div className="w-6 h-6 bg-emtek-blue text-white rounded-full flex items-center justify-center text-xs font-semibold">
+                      2
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm text-gray-900">Let AI work</p>
+                      <p className="text-caption">AI automatically extracts and organizes key information</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <div className="w-6 h-6 bg-green-600 text-white rounded-full flex items-center justify-center text-xs font-semibold">
+                      3
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm text-gray-900">Ask questions</p>
+                      <p className="text-caption">Get AI-powered answers based on project knowledge</p>
+                    </div>
+                  </div>
+                </div>
               </div>
+            </div>
 
-              {/* Features Info */}
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <h3 className="text-sm font-semibold text-blue-900 mb-2">
-                  What you get with your project:
-                </h3>
-                <ul className="text-sm text-blue-800 space-y-1">
-                  <li>• AI-powered chat for project discussions</li>
-                  <li>• Automatic extraction of decisions, risks, and deadlines</li>
-                  <li>• "Ask the Project" feature for instant knowledge retrieval</li>
-                  <li>• Structured knowledge base that grows over time</li>
-                  <li>• File uploads and project documentation</li>
+            {/* Tips Card */}
+            <div className="card bg-gradient-to-br from-emtek-navy/5 to-emtek-blue/5 border-emtek-navy/10">
+              <div className="card-body">
+                <h3 className="font-semibold text-emtek-navy mb-3">💡 Pro Tips</h3>
+                <ul className="space-y-2 text-caption">
+                  <li>• Be descriptive in your project name and description</li>
+                  <li>• Start with your main objectives and challenges</li>
+                  <li>• The more context you provide, the smarter AI becomes</li>
+                  <li>• Use natural language - no need for formal documentation</li>
                 </ul>
               </div>
-
-              {/* Actions */}
-              <div className="flex gap-3 pt-6 border-t border-gray-200">
-                <Link 
-                  href="/projects"
-                  className="btn-secondary px-6 py-2"
-                >
-                  Cancel
-                </Link>
-                <button
-                  type="submit"
-                  disabled={loading || !formData.name.trim()}
-                  className="btn px-6 py-2 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      Creating...
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="w-4 h-4" />
-                      Create Project
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-
-          {/* Help Section */}
-          <div className="mt-8 p-6 bg-gray-50 rounded-xl">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">
-              Getting Started Tips
-            </h3>
-            <div className="space-y-3 text-sm text-gray-700">
-              <p>
-                <span className="font-medium">1. Start with a chat:</span> Once your project is created, begin a conversation about your project goals, challenges, or requirements.
-              </p>
-              <p>
-                <span className="font-medium">2. Let AI extract knowledge:</span> As you discuss decisions, deadlines, and risks, the AI will automatically capture and organize this information.
-              </p>
-              <p>
-                <span className="font-medium">3. Use "Ask the Project":</span> At any time, ask questions about your project and get AI-powered answers based on all your discussions.
-              </p>
             </div>
           </div>
-        </main>
-      </div>
-    </div>
+        </div>
+      </main>
+    </DashboardLayout>
   );
 }
