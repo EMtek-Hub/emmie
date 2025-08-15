@@ -58,14 +58,14 @@ export default function Sidebar({ user, links = [], onSignOut, onClose, isMobile
         <div className="p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-emtek-navy/10 rounded-xl">
-                <Sparkles className="w-6 h-6 text-emtek-navy" />
-              </div>
-              <div>
-                <h1 className="font-bold text-emtek-navy">{toolConfig.name || 'Emmie'}</h1>
-                <p className="text-xs text-gray-500">AI Assistant</p>
-              </div>
+            <div className="w-full">
+              <img 
+                src="/emmie-logo.svg" 
+                alt="Emmie" 
+                className="w-full h-auto max-w-full cursor-pointer" 
+                onClick={handleBackToHub}
+                style={{ maxHeight: '40px' }}
+              />
             </div>
             <button 
               onClick={onClose} 
@@ -150,16 +150,13 @@ export default function Sidebar({ user, links = [], onSignOut, onClose, isMobile
     <aside className="bg-white border-r border-gray-100 h-screen sticky top-0 flex flex-col shadow-soft animate-fade-in">
       {/* Header */}
       <div className="p-6 border-b border-gray-100">
-        <div className="flex items-center gap-3 group cursor-pointer" onClick={handleBackToHub}>
-          <div className="p-2 bg-emtek-navy/10 rounded-xl group-hover:bg-emtek-navy/20 transition-all duration-300">
-            <Sparkles className="w-6 h-6 text-emtek-navy group-hover:scale-110 transition-transform duration-300" />
-          </div>
-          <div>
-            <h1 className="font-bold text-emtek-navy group-hover:text-emtek-blue transition-colors duration-300">
-              {toolConfig.name || 'Emmie'}
-            </h1>
-            <p className="text-xs text-gray-500">AI Assistant</p>
-          </div>
+        <div className="w-full cursor-pointer" onClick={handleBackToHub}>
+          <img 
+            src="/emmie-logo.svg" 
+            alt="Emmie" 
+            className="w-full h-auto max-w-full hover:opacity-80 transition-opacity duration-300" 
+            style={{ maxHeight: '40px' }}
+          />
         </div>
       </div>
 

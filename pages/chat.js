@@ -11,9 +11,26 @@ import {
   Bot,
   Sparkles,
   BarChart3,
-  ArrowLeft
+  ArrowLeft,
+  Settings,
+  Trash2,
+  Check,
+  Copy
 } from 'lucide-react';
 import Link from 'next/link';
+
+// Helper function to format relative time
+function formatRelativeTime(dateString) {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffInSeconds = Math.floor((now - date) / 1000);
+  
+  if (diffInSeconds < 60) return 'Just now';
+  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+  if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
+  return date.toLocaleDateString();
+}
 
 export default function ChatPage({ session }) {
   const [message, setMessage] = useState('');
@@ -22,7 +39,17 @@ export default function ChatPage({ session }) {
   const [projects, setProjects] = useState([]);
   const [chatHistory, setChatHistory] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [agents, setAgents] = useState([]);
+  const [selectedAgent, setSelectedAgent] = useState(null);
+  const [currentChatId, setCurrentChatId] = useState(null);
+  const [isLoadingChat, setIsLoadingChat] = useState(false);
+  const [titleGenerated, setTitleGenerated] = useState(false);
   const messagesEndRef = useRef(null);
+
+  // Helper function to determine if a chat needs a title
+  const needsTitle = (title) => {
+    return !title || title.trim() === '' || title === 'New Chat' || title === 'Untitled';
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -35,6 +62,7 @@ export default function ChatPage({ session }) {
   useEffect(() => {
     fetchProjects();
     fetchChatHistory();
+    fetchAgents();
   }, []);
 
   const fetchProjects = async () => {
@@ -50,11 +78,38 @@ export default function ChatPage({ session }) {
   };
 
   const fetchChatHistory = async () => {
-    setChatHistory([
-      { id: 1, title: 'Website redesign discussion', updatedAt: '2 hours ago' },
-      { id: 2, title: 'Database optimization', updatedAt: 'Yesterday' },
-      { id: 3, title: 'API documentation review', updatedAt: '3 days ago' },
-    ]);
+    try {
+      const response = await fetch('/api/chats');
+      if (response.ok) {
+        const data = await response.json();
+        const formattedChats = (data.chats || []).map(chat => ({
+          ...chat,
+          updatedAt: formatRelativeTime(chat.updatedAt)
+        }));
+        setChatHistory(formattedChats);
+      }
+    } catch (error) {
+      console.error('Failed to fetch chat history:', error);
+      // Fall back to empty array on error
+      setChatHistory([]);
+    }
+  };
+
+  const fetchAgents = async () => {
+    try {
+      const response = await fetch('/api/agents');
+      if (response.ok) {
+        const data = await response.json();
+        setAgents(data.agents || []);
+        // Set default agent to General Assistant
+        const defaultAgent = data.agents?.find(agent => agent.department === 'General');
+        if (defaultAgent) {
+          setSelectedAgent(defaultAgent);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch agents:', error);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -73,6 +128,9 @@ export default function ChatPage({ session }) {
     setMessage('');
     setIsLoading(true);
 
+    // Track if this is a new chat (for title generation)
+    const isNewChat = !currentChatId;
+
     const assistantMessageId = Date.now() + 1;
     const assistantMessage = {
       id: assistantMessageId,
@@ -89,10 +147,12 @@ export default function ChatPage({ session }) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          chatId: currentChatId, // Pass current chat ID to continue existing chat
           messages: [
             ...messages.map(msg => ({ role: msg.role, content: msg.content })),
             { role: 'user', content: currentMessage }
-          ]
+          ],
+          agentId: selectedAgent?.id
         })
       });
 
@@ -130,6 +190,21 @@ export default function ChatPage({ session }) {
                     : msg
                 ));
               }
+              
+              if (data.chatId && !currentChatId) {
+                setCurrentChatId(data.chatId);
+              }
+              
+              // Handle completion event
+              if (data.chatId && data.messageId) {
+                // Auto-generate title after first AI response
+                // Check if we haven't generated a title yet and this is the first response
+                if (!titleGenerated && isNewChat) {
+                  // This is a new chat and first response completed
+                  setTitleGenerated(true);
+                  setTimeout(() => generateChatTitle(data.chatId), 500);
+                }
+              }
             } catch (parseError) {
               console.error('Error parsing SSE data:', parseError);
             }
@@ -147,6 +222,10 @@ export default function ChatPage({ session }) {
       ));
     } finally {
       setIsLoading(false);
+      // Refresh chat history to show updated chat or new chat
+      setTimeout(() => {
+        fetchChatHistory();
+      }, 1000);
     }
   };
 
@@ -156,7 +235,97 @@ export default function ChatPage({ session }) {
 
   const startNewChat = () => {
     setMessages([]);
+    setCurrentChatId(null);
+    setTitleGenerated(false);
     setSidebarOpen(false);
+  };
+
+  const loadChat = async (chatId) => {
+    if (currentChatId === chatId) return; // Already loaded
+    
+    setIsLoadingChat(true);
+    setCurrentChatId(chatId);
+    
+    try {
+      const response = await fetch(`/api/chats/${chatId}/messages`);
+      if (response.ok) {
+        const data = await response.json();
+        // Convert timestamp strings to Date objects
+        const formattedMessages = (data.messages || []).map(msg => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }));
+        setMessages(formattedMessages);
+        
+        // Update selected agent if chat has an agent
+        if (data.chat.agentId) {
+          const chatAgent = agents.find(agent => agent.id === data.chat.agentId);
+          if (chatAgent) {
+            setSelectedAgent(chatAgent);
+          }
+        }
+        
+        // Check if this chat needs a title and generate one if necessary
+        if (needsTitle(data.chat.title) && formattedMessages.length >= 2) {
+          // Chat has messages but no proper title - generate one
+          setTitleGenerated(false);
+          setTimeout(() => generateChatTitle(chatId), 500);
+        } else {
+          // Chat already has a proper title or not enough messages
+          setTitleGenerated(true);
+        }
+        
+        setSidebarOpen(false);
+      } else {
+        console.error('Failed to load chat messages');
+      }
+    } catch (error) {
+      console.error('Error loading chat:', error);
+    } finally {
+      setIsLoadingChat(false);
+    }
+  };
+
+  const generateChatTitle = async (chatId) => {
+    try {
+      const response = await fetch(`/api/chats/${chatId}/generate-title`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Generated title:', data.title);
+        // Refresh chat history to show updated title
+        fetchChatHistory();
+      }
+    } catch (error) {
+      console.error('Error generating title:', error);
+    }
+  };
+
+  const deleteChat = async (chatId) => {
+    try {
+      const response = await fetch('/api/chats', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId })
+      });
+      
+      if (response.ok) {
+        // If deleting current chat, clear the messages
+        if (currentChatId === chatId) {
+          setMessages([]);
+          setCurrentChatId(null);
+        }
+        // Refresh chat history
+        fetchChatHistory();
+      } else {
+        console.error('Failed to delete chat');
+      }
+    } catch (error) {
+      console.error('Error deleting chat:', error);
+    }
   };
 
   const quickPrompts = [
@@ -182,6 +351,9 @@ export default function ChatPage({ session }) {
               chatHistory={chatHistory}
               onSignOut={handleSignOut}
               onNewChat={startNewChat}
+              onLoadChat={loadChat}
+              onDeleteChat={deleteChat}
+              currentChatId={currentChatId}
               onClose={() => setSidebarOpen(false)}
               isMobile={true}
             />
@@ -197,6 +369,9 @@ export default function ChatPage({ session }) {
           chatHistory={chatHistory}
           onSignOut={handleSignOut}
           onNewChat={startNewChat}
+          onLoadChat={loadChat}
+          onDeleteChat={deleteChat}
+          currentChatId={currentChatId}
         />
       </div>
 
@@ -211,9 +386,13 @@ export default function ChatPage({ session }) {
             >
               <MessageSquare className="w-5 h-5" />
             </button>
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-emtek-navy" />
-              <span className="font-semibold text-emtek-navy">Emmie</span>
+            <div className="flex-1 max-w-[200px]">
+              <img 
+                src="/emmie-logo.svg" 
+                alt="Emmie" 
+                className="w-full h-auto max-w-full" 
+                style={{ maxHeight: '40px' }}
+              />
             </div>
             <Link href="/dashboard" className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors duration-200">
               <ArrowLeft className="w-5 h-5" />
@@ -237,6 +416,34 @@ export default function ChatPage({ session }) {
           )}
         </div>
 
+        {/* Agent Selection */}
+        {agents.length > 0 && (
+          <div className="border-t border-gray-200 bg-gray-50 p-2">
+            <div className="container-app">
+              <div className="flex items-center gap-2 overflow-x-auto">
+                <span className="text-caption font-medium text-gray-500 flex-shrink-0">Ask:</span>
+                {agents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    onClick={() => setSelectedAgent(agent)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 flex-shrink-0 ${
+                      selectedAgent?.id === agent.id
+                        ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
+                    }`}
+                    style={{ 
+                      borderColor: selectedAgent?.id === agent.id ? agent.color : 'transparent',
+                      color: selectedAgent?.id === agent.id ? agent.color : undefined
+                    }}
+                  >
+                    <span>{agent.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Input Form */}
         <div className="border-t border-gray-200 bg-white p-4">
           <div className="container-app">
@@ -251,7 +458,7 @@ export default function ChatPage({ session }) {
                       handleSubmit(e);
                     }
                   }}
-                  placeholder="Message Emmie..."
+                  placeholder={`Message ${selectedAgent?.name || 'Emmie'}...`}
                   className="input pr-12 resize-none"
                   rows="1"
                   style={{ minHeight: '52px', maxHeight: '120px' }}
@@ -266,7 +473,7 @@ export default function ChatPage({ session }) {
                 </button>
               </div>
               <p className="text-caption mt-2 text-center">
-                Emmie can make mistakes. Consider checking important information.
+                {selectedAgent?.description || 'Emmie can make mistakes. Consider checking important information.'}
               </p>
             </form>
           </div>
@@ -277,25 +484,24 @@ export default function ChatPage({ session }) {
 }
 
 // Chat Sidebar Component
-function ChatSidebar({ session, projects, chatHistory, onSignOut, onNewChat, onClose, isMobile = false }) {
+function ChatSidebar({ session, projects, chatHistory, onSignOut, onNewChat, onLoadChat, onDeleteChat, currentChatId, onClose, isMobile = false }) {
   return (
     <div className="bg-white h-full shadow-strong border-r border-gray-100 flex flex-col animate-slide-up">
       {/* Header */}
       <div className="p-6 border-b border-gray-100">
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-emtek-navy/10 rounded-xl">
-              <Sparkles className="w-6 h-6 text-emtek-navy" />
-            </div>
-            <div>
-              <h1 className="font-bold text-emtek-navy">Emmie</h1>
-              <p className="text-caption">AI Assistant</p>
-            </div>
+          <div className="w-full">
+            <img 
+              src="/emmie-logo.svg" 
+              alt="Emmie" 
+              className="w-full h-auto max-w-full" 
+              style={{ maxHeight: '40px' }}
+            />
           </div>
           {isMobile && onClose && (
             <button
               onClick={onClose}
-              className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors duration-200"
+              className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors duration-200 ml-2"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
@@ -304,7 +510,7 @@ function ChatSidebar({ session, projects, chatHistory, onSignOut, onNewChat, onC
         
         <button
           onClick={onNewChat}
-          className="btn-primary w-full gap-2"
+          className="w-full gap-2 px-4 py-3 bg-gradient-to-br from-[#aedfe4] to-[#1275bc] text-white font-medium rounded-xl shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center"
         >
           <Plus className="w-4 h-4" />
           <span>New Chat</span>
@@ -322,16 +528,50 @@ function ChatSidebar({ session, projects, chatHistory, onSignOut, onNewChat, onC
             {chatHistory.map((chat) => (
               <div
                 key={chat.id}
-                className="p-3 rounded-xl hover:bg-gray-50 cursor-pointer group transition-all duration-200"
+                className={`p-3 rounded-xl hover:bg-gray-50 cursor-pointer group transition-all duration-200 relative ${
+                  currentChatId === chat.id ? 'bg-emtek-navy/5 border border-emtek-navy/20' : ''
+                }`}
+                onClick={() => onLoadChat && onLoadChat(chat.id)}
               >
                 <div className="flex items-start gap-3">
-                  <MessageSquare className="w-4 h-4 text-gray-400 mt-0.5 group-hover:text-emtek-navy transition-colors duration-200" />
+                  <MessageSquare className={`w-4 h-4 mt-0.5 group-hover:text-emtek-navy transition-colors duration-200 ${
+                    currentChatId === chat.id ? 'text-emtek-navy' : 'text-gray-400'
+                  }`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-body font-medium line-clamp-2 group-hover:text-emtek-navy transition-colors duration-200">
+                    <p className={`text-body font-medium line-clamp-2 group-hover:text-emtek-navy transition-colors duration-200 ${
+                      currentChatId === chat.id ? 'text-emtek-navy' : ''
+                    }`}>
                       {chat.title}
                     </p>
-                    <p className="text-caption mt-1">{chat.updatedAt}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-caption">{chat.updatedAt}</p>
+                      {chat.agentName && (
+                        <span 
+                          className="text-xs px-2 py-0.5 rounded-full" 
+                          style={{ 
+                            backgroundColor: chat.agentColor + '20',
+                            color: chat.agentColor 
+                          }}
+                        >
+                          {chat.agentName}
+                        </span>
+                      )}
+                    </div>
                   </div>
+                  {onDeleteChat && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm('Are you sure you want to delete this chat?')) {
+                          onDeleteChat(chat.id);
+                        }
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600 transition-all duration-200"
+                      title="Delete chat"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -395,13 +635,22 @@ function ChatSidebar({ session, projects, chatHistory, onSignOut, onNewChat, onC
               <p className="text-caption">Signed in</p>
             </div>
           </div>
-          <button
-            onClick={onSignOut}
-            className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-600 transition-all duration-200"
-            title="Sign out"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <Link
+              href="/settings"
+              className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-600 transition-all duration-200"
+              title="Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </Link>
+            <button
+              onClick={onSignOut}
+              className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-600 transition-all duration-200"
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -413,8 +662,13 @@ function WelcomeScreen({ quickPrompts, onPromptClick }) {
   return (
     <div className="h-full flex items-center justify-center p-6 animate-fade-in">
       <div className="text-center max-w-2xl">
-        <div className="w-20 h-20 bg-gradient-to-br from-emtek-navy to-emtek-blue rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-glow animate-scale-in">
-          <Sparkles className="w-10 h-10 text-white" />
+        <div className="flex justify-center mb-6">
+          <img 
+            src="/emmie-logo.svg" 
+            alt="Emmie" 
+            style={{ width: '250px', height: 'auto' }}
+            className="max-w-full"
+          />
         </div>
         <h1 className="text-display mb-4">
           Welcome to Emmie
@@ -435,8 +689,8 @@ function WelcomeScreen({ quickPrompts, onPromptClick }) {
             >
               <div className="card-body py-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-emtek-navy/10 rounded-lg flex items-center justify-center group-hover:bg-emtek-navy/20 transition-colors duration-200">
-                    <Sparkles className="w-4 h-4 text-emtek-navy" />
+                  <div className="w-8 h-8 flex items-center justify-center">
+                    <img src="/emmie-icon-d.svg" alt="Emmie" className="w-8 h-8" />
                   </div>
                   <span className="text-body font-medium group-hover:text-emtek-navy transition-colors duration-200">
                     {prompt}
@@ -470,7 +724,7 @@ function WelcomeScreen({ quickPrompts, onPromptClick }) {
 // Presentation Components
 function UserBubble({ children }) {
   return (
-    <div className="max-w-[85%] self-end rounded-2xl rounded-br-md bg-blue-600 px-4 py-3 text-white shadow-sm dark:bg-blue-500">
+    <div className="max-w-[85%] self-end rounded-2xl rounded-br-md bg-gradient-to-br from-[#aedfe4] to-[#1275bc] px-4 py-3 text-white shadow-sm">
       {children}
     </div>
   );
@@ -545,7 +799,7 @@ function ChatMessage({ message }) {
               <div>{message.content}</div>
             </UserBubble>
             <p className="text-caption mt-1">
-              {message.timestamp.toLocaleTimeString()}
+              {message.timestamp instanceof Date ? message.timestamp.toLocaleTimeString() : 'Unknown time'}
             </p>
           </div>
           <div className="w-10 h-10 bg-gray-200 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -554,8 +808,8 @@ function ChatMessage({ message }) {
         </div>
       ) : (
         <div className="flex items-start gap-3 w-full">
-          <div className="w-10 h-10 bg-emtek-navy rounded-xl flex items-center justify-center flex-shrink-0">
-            <Bot className="w-5 h-5 text-white" />
+          <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
+            <img src="/emmie-icon-d.svg" alt="Emmie" className="w-10 h-10" />
           </div>
           <div className="flex-1">
             <AssistantBlock>
@@ -579,7 +833,7 @@ function ChatMessage({ message }) {
               />
             </AssistantBlock>
             <p className="text-caption mt-1">
-              {message.timestamp.toLocaleTimeString()}
+              {message.timestamp instanceof Date ? message.timestamp.toLocaleTimeString() : 'Unknown time'}
             </p>
           </div>
         </div>
@@ -592,8 +846,8 @@ function ChatMessage({ message }) {
 function LoadingMessage() {
   return (
     <div className="flex items-start gap-3 w-full">
-      <div className="w-10 h-10 bg-emtek-navy rounded-xl flex items-center justify-center flex-shrink-0">
-        <Bot className="w-5 h-5 text-white" />
+      <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
+        <img src="/emmie-icon-d.svg" alt="Emmie" className="w-10 h-10" />
       </div>
       <div className="flex-1">
         <div className="flex items-center gap-3">
