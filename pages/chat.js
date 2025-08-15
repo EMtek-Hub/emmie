@@ -662,6 +662,9 @@ function WelcomeScreen({ quickPrompts, onPromptClick }) {
   return (
     <div className="h-full flex items-center justify-center p-6 animate-fade-in">
       <div className="text-center max-w-2xl">
+        <h1 className="text-display mb-6">
+          Welcome to
+        </h1>
         <div className="flex justify-center mb-6">
           <img 
             src="/emmie-logo.svg" 
@@ -670,9 +673,6 @@ function WelcomeScreen({ quickPrompts, onPromptClick }) {
             className="max-w-full"
           />
         </div>
-        <h1 className="text-display mb-4">
-          Welcome to Emmie
-        </h1>
         <p className="text-body mb-8 max-w-lg mx-auto">
           Your AI assistant for project management and development. 
           Ask me anything about your projects, code, or how I can help you work more efficiently.
