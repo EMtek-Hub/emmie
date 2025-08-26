@@ -1,6 +1,6 @@
 import { requireApiPermission } from '../../../../lib/apiAuth';
 import { supabaseAdmin, EMTEK_ORG_ID } from '../../../../lib/db';
-import { openai, DEFAULT_CHAT_MODEL } from '../../../../lib/ai';
+import { openai, selectGPT5Model, selectReasoningEffort } from '../../../../lib/ai';
 import { NextApiRequest, NextApiResponse } from 'next';
 
 export const config = { 
@@ -183,36 +183,41 @@ ${(notes || []).map(n => `- ${n.note_md}`).join('\n') || 'None recorded'}
 ${ragSnippets.length > 0 ? `## Additional Context\n${ragSnippets.map((s, i) => `[S${i+1}] ${s.title}\n${s.content}`).join('\n\n')}` : ''}
       `;
 
-      const stream = await openai.chat.completions.create({
-        model: DEFAULT_CHAT_MODEL,
-        stream: true,
-        messages: [
-          {
-            role: 'system',
-            content: `You are Emmie, an AI assistant helping with project analysis. You have access to comprehensive project information including decisions, risks, deadlines, owners, metrics, and notes. 
+      // Select appropriate GPT-5 model for project analysis
+      const selectedModel = selectGPT5Model({
+        isComplexTask: true, // Project analysis is complex
+        messageLength: userMessage.length + context.length
+      });
+      
+      const reasoningEffort = selectReasoningEffort({
+        isComplexTask: true,
+        messageLength: userMessage.length + context.length
+      });
+
+      const instructions = `You are Emmie, an AI assistant helping with project analysis. You have access to comprehensive project information including decisions, risks, deadlines, owners, metrics, and notes. 
 
 Answer questions accurately based on the provided context. If you reference specific information, be clear about what type of fact it is (decision, risk, deadline, etc.). 
 
 If you reference RAG snippets, cite them as [S1], [S2], etc. 
 
-Always use markdown formatting for clarity and better readability. Be concise but thorough.`
-          },
-          {
-            role: 'user',
-            content: `Based on the following project information, please answer this question: "${userMessage}"\n\n${context}`
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 1500
+Always use markdown formatting for clarity and better readability. Be concise but thorough.`;
+
+      const input = `Based on the following project information, please answer this question: "${userMessage}"\n\n${context}`;
+
+      // Use GPT-5 Responses API (non-streaming for now, can add streaming later)
+      const response = await openai.responses.create({
+        model: selectedModel,
+        instructions: instructions,
+        input: input,
+        reasoning: { effort: reasoningEffort as any }
       });
 
-      for await (const chunk of stream) {
-        const delta = chunk.choices?.[0]?.delta?.content || '';
-        if (delta) {
-          assistantResponse += delta;
-          send('token', { delta });
-        }
-      }
+      // Get the response text and send it
+      assistantResponse = response.output_text || '';
+      
+      // For now, send the complete response at once
+      // TODO: Implement streaming with Responses API when available
+      send('token', { delta: assistantResponse });
 
       // Save assistant response to database
       if (assistantResponse) {

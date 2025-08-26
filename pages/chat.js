@@ -1,6 +1,33 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { requireHubAuth } from '../lib/authz';
 import { renderMarkdown } from '../lib/markdown';
+import { GPT5_MODELS } from '../lib/ai';
+import { 
+  Message, 
+  ChatState, 
+  RegenerationState,
+  StreamStopReason,
+  FileDescriptor,
+  ChatFileType
+} from '../lib/chat/interfaces';
+import {
+  buildLatestMessageChain,
+  processRawChatHistory,
+  updateParentChildren,
+  removeMessage,
+  getLastSuccessfulMessageId,
+  createChatSession,
+  nameChatSession,
+  handleChatFeedback
+} from '../lib/chat/messageUtils';
+import { EnhancedMessage } from '../components/chat/EnhancedMessage';
+import { DocumentSidebar } from '../components/chat/DocumentSidebar';
+import { DragDropWrapper, FilePreview } from '../components/chat/DragDropWrapper';
+import { DocumentsProvider } from '../components/chat/DocumentsContext-simple';
+import { EnhancedChatInputBar } from '../components/chat/EnhancedChatInputBar';
+import EnhancedSidebar from '../components/chat/EnhancedSidebar';
+import { StopGeneratingButton } from '../components/chat/MessageActions';
+import DocumentSelectionModal from '../components/chat/DocumentSelectionModal';
 import { 
   Send, 
   Plus, 
@@ -14,27 +41,29 @@ import {
   ArrowLeft,
   Settings,
   Trash2,
-  Check,
-  Copy
+  Paperclip,
+  Image,
+  Search,
+  BookOpen,
+  MoreHorizontal,
+  Upload,
+  X,
+  FileText
 } from 'lucide-react';
 import Link from 'next/link';
 
-// Helper function to format relative time
-function formatRelativeTime(dateString) {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffInSeconds = Math.floor((now - date) / 1000);
-  
-  if (diffInSeconds < 60) return 'Just now';
-  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
-  if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
-  return date.toLocaleDateString();
-}
+// Constants
+const TEMP_USER_MESSAGE_ID = -1;
+const TEMP_ASSISTANT_MESSAGE_ID = -2;
+const SYSTEM_MESSAGE_ID = -3;
 
 export default function ChatPage({ session }) {
+  // State Management
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
+  const [streamingMessage, setStreamingMessage] = useState('');
+  const [chatState, setChatState] = useState('input');
+  const [regenerationState, setRegenerationState] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [projects, setProjects] = useState([]);
   const [chatHistory, setChatHistory] = useState([]);
@@ -42,14 +71,58 @@ export default function ChatPage({ session }) {
   const [agents, setAgents] = useState([]);
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [currentChatId, setCurrentChatId] = useState(null);
-  const [isLoadingChat, setIsLoadingChat] = useState(false);
-  const [titleGenerated, setTitleGenerated] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [documentSidebarOpen, setDocumentSidebarOpen] = useState(false);
+  const [selectedDocuments, setSelectedDocuments] = useState([]);
+  const [availableDocuments, setAvailableDocuments] = useState([]);
+  const [abortController, setAbortController] = useState(null);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [documentModalOpen, setDocumentModalOpen] = useState(false);
+  const [selectedContext, setSelectedContext] = useState([]);
+  const [selectedModel, setSelectedModel] = useState(GPT5_MODELS.MINI); // Default to GPT-5 Mini
+  
+  // Refs
   const messagesEndRef = useRef(null);
+  const chatSessionIdRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
 
-  // Helper function to determine if a chat needs a title
-  const needsTitle = (title) => {
-    return !title || title.trim() === '' || title === 'New Chat' || title === 'Untitled';
-  };
+  // Build complete message history including streaming
+  const messageHistory = useMemo(() => {
+    const allMessages = [...messages];
+    
+    // Add streaming message if active
+    if (isStreaming && streamingMessage) {
+      allMessages.push({
+        id: 'streaming',
+        messageId: 'streaming',
+        role: 'assistant',
+        content: streamingMessage,
+        timestamp: new Date(),
+        isStreaming: true
+      });
+    }
+    
+    return allMessages;
+  }, [messages, isStreaming, streamingMessage]);
+
+  // Simple message update function
+  const addMessage = useCallback((message) => {
+    setMessages(prev => [...prev, message]);
+  }, []);
+
+  const updateLastMessage = useCallback((updates) => {
+    setMessages(prev => {
+      const newMessages = [...prev];
+      if (newMessages.length > 0) {
+        newMessages[newMessages.length - 1] = {
+          ...newMessages[newMessages.length - 1],
+          ...updates
+        };
+      }
+      return newMessages;
+    });
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -57,7 +130,7 @@ export default function ChatPage({ session }) {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messageHistory]);
 
   useEffect(() => {
     fetchProjects();
@@ -82,16 +155,10 @@ export default function ChatPage({ session }) {
       const response = await fetch('/api/chats');
       if (response.ok) {
         const data = await response.json();
-        const formattedChats = (data.chats || []).map(chat => ({
-          ...chat,
-          updatedAt: formatRelativeTime(chat.updatedAt)
-        }));
-        setChatHistory(formattedChats);
+        setChatHistory(data.chats || []);
       }
     } catch (error) {
       console.error('Failed to fetch chat history:', error);
-      // Fall back to empty array on error
-      setChatHistory([]);
     }
   };
 
@@ -101,7 +168,6 @@ export default function ChatPage({ session }) {
       if (response.ok) {
         const data = await response.json();
         setAgents(data.agents || []);
-        // Set default agent to General Assistant
         const defaultAgent = data.agents?.find(agent => agent.department === 'General');
         if (defaultAgent) {
           setSelectedAgent(defaultAgent);
@@ -112,48 +178,133 @@ export default function ChatPage({ session }) {
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!message.trim() || isLoading) return;
+  // Handle file upload
+  const handleFileUpload = async (files) => {
+    const filesWithPreviews = await Promise.all(files.map(async (file, index) => {
+      let previewUrl = null;
+      if (file.type.startsWith('image/')) {
+        previewUrl = URL.createObjectURL(file);
+      }
+      return { 
+        id: `${Date.now()}-${index}`,
+        file, 
+        previewUrl, 
+        uploaded: false, 
+        uploading: true,
+        url: null,
+        error: null,
+        type: file.type.startsWith('image/') ? ChatFileType.IMAGE : ChatFileType.PLAIN_TEXT,
+        name: file.name
+      };
+    }));
 
-    const userMessage = { 
-      id: Date.now(), 
-      role: 'user', 
-      content: message.trim(),
-      timestamp: new Date()
+    setUploadedFiles(prev => [...prev, ...filesWithPreviews]);
+
+    // Upload files
+    for (const fileObj of filesWithPreviews) {
+      try {
+        const formData = new FormData();
+        formData.append('file', fileObj.file);
+
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setUploadedFiles(prev => prev.map(f => 
+            f.id === fileObj.id 
+              ? { ...f, uploaded: true, uploading: false, url: data.url }
+              : f
+          ));
+        } else {
+          throw new Error('Upload failed');
+        }
+      } catch (error) {
+        console.error('Error uploading file:', error);
+        setUploadedFiles(prev => prev.map(f => 
+          f.id === fileObj.id 
+            ? { ...f, uploaded: false, uploading: false, error: 'Upload failed' }
+            : f
+        ));
+      }
+    }
+  };
+
+  // Stop message generation
+  const stopGenerating = () => {
+    if (abortController) {
+      abortController.abort();
+      setAbortController(null);
+    }
+    setChatState('input');
+    setIsLoading(false);
+  };
+
+  // Handle message submission
+  const handleSubmit = async (e, messageOverride = null, regenerateMessageId = null) => {
+    e?.preventDefault();
+    
+    const messageToSend = messageOverride || message.trim();
+    if (!messageToSend || isLoading) return;
+
+    // Create abort controller
+    const controller = new AbortController();
+    setAbortController(controller);
+    
+    // Create user message
+    const userMessageId = regenerateMessageId || Date.now();
+    const userMessage = {
+      id: userMessageId,
+      messageId: userMessageId,
+      role: 'user',
+      content: messageToSend,
+      timestamp: new Date(),
+      files: uploadedFiles.filter(f => f.uploaded)
     };
 
-    setMessages(prev => [...prev, userMessage]);
-    const currentMessage = message.trim();
+    // Add user message to messages array
+    addMessage(userMessage);
+    
+    // Clear input and set loading states
     setMessage('');
+    setUploadedFiles([]);
     setIsLoading(true);
+    setIsStreaming(true);
+    setStreamingMessage('');
+    setChatState('streaming');
 
-    // Track if this is a new chat (for title generation)
-    const isNewChat = !currentChatId;
-
-    const assistantMessageId = Date.now() + 1;
-    const assistantMessage = {
-      id: assistantMessageId,
-      role: 'assistant',
-      content: '',
-      timestamp: new Date()
-    };
-    setMessages(prev => [...prev, assistantMessage]);
+    // Create or continue chat session
+    let chatId = currentChatId;
+    if (!chatId) {
+      chatId = await createChatSession(selectedAgent?.id || 0);
+      setCurrentChatId(chatId);
+      chatSessionIdRef.current = chatId;
+    }
 
     try {
-      const response = await fetch('/api/chat', {
+      // Build messages for API
+      const apiMessages = [...messages, userMessage].map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
+
+      // Choose API endpoint based on selected model
+      const apiEndpoint = Object.values(GPT5_MODELS).includes(selectedModel) ? '/api/chat-gpt5' : '/api/chat-simple';
+      
+      const response = await fetch(apiEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          chatId: currentChatId, // Pass current chat ID to continue existing chat
-          messages: [
-            ...messages.map(msg => ({ role: msg.role, content: msg.content })),
-            { role: 'user', content: currentMessage }
-          ],
-          agentId: selectedAgent?.id
-        })
+          chatId,
+          messages: apiMessages,
+          agentId: selectedAgent?.id,
+          selectedContext: Object.values(GPT5_MODELS).includes(selectedModel) ? selectedContext : undefined
+        }),
+        signal: controller.signal
       });
 
       if (!response.ok) {
@@ -168,6 +319,9 @@ export default function ChatPage({ session }) {
       }
 
       let buffer = '';
+      let assistantContent = '';
+      let toolCall = null;
+      let documents = [];
       
       while (true) {
         const { done, value } = await reader.read();
@@ -184,27 +338,42 @@ export default function ChatPage({ session }) {
               const data = JSON.parse(line.slice(6));
               
               if (data.delta) {
-                setMessages(prev => prev.map(msg => 
-                  msg.id === assistantMessageId 
-                    ? { ...msg, content: msg.content + data.delta }
-                    : msg
-                ));
+                assistantContent += data.delta;
+                setStreamingMessage(assistantContent);
               }
               
-              if (data.chatId && !currentChatId) {
-                setCurrentChatId(data.chatId);
+              if (data.tool_name) {
+                toolCall = {
+                  tool_name: data.tool_name,
+                  tool_args: data.tool_args,
+                  tool_result: data.tool_result
+                };
               }
               
-              // Handle completion event
-              if (data.chatId && data.messageId) {
-                // Auto-generate title after first AI response
-                // Check if we haven't generated a title yet and this is the first response
-                if (!titleGenerated && isNewChat) {
-                  // This is a new chat and first response completed
-                  setTitleGenerated(true);
-                  setTimeout(() => generateChatTitle(data.chatId), 500);
+              if (data.documents) {
+                documents = data.documents;
+                setAvailableDocuments(data.documents);
+              }
+              
+              if (data.tool_call) {
+                // Show tool usage indicator
+                console.log('Tool call:', data.tool_call);
+              }
+              
+              if (data.tool_result) {
+                // Show tool result
+                console.log('Tool result:', data.tool_result);
+              }
+              
+              if (data.done) {
+                // Update chat ID if we got a real one from the API
+                if (data.chatId && data.chatId !== chatId && !data.chatId.startsWith('temp-')) {
+                  chatId = data.chatId;
+                  setCurrentChatId(data.chatId);
+                  chatSessionIdRef.current = data.chatId;
                 }
               }
+              
             } catch (parseError) {
               console.error('Error parsing SSE data:', parseError);
             }
@@ -212,21 +381,108 @@ export default function ChatPage({ session }) {
         }
       }
 
+      // Add final assistant message
+      const assistantMessage = {
+        id: Date.now() + 1,
+        messageId: Date.now() + 1,
+        role: 'assistant',
+        content: assistantContent,
+        timestamp: new Date(),
+        toolCall,
+        documents
+      };
+      
+      addMessage(assistantMessage);
+
+      // Generate title for chats that need one (new chats or chats with default title)
+      // Check if we have enough messages and the chat needs a title
+      const totalMessages = [...messages, userMessage, assistantMessage];
+      const hasEnoughMessages = totalMessages.filter(m => m.role === 'user' || m.role === 'assistant').length >= 2;
+      
+      if (hasEnoughMessages && !chatId.startsWith('temp-')) {
+        // Only attempt title generation if we have a real chat ID (not temporary)
+        // Generate title and refresh chat history when complete
+        setTimeout(async () => {
+          try {
+            await nameChatSession(chatId);
+            // Wait a moment then refresh the chat history to show the new title
+            setTimeout(fetchChatHistory, 500);
+          } catch (error) {
+            console.error('Title generation failed:', error);
+            // Still refresh chat history even if title generation fails
+            setTimeout(fetchChatHistory, 500);
+          }
+        }, 500);
+      }
+
     } catch (error) {
       console.error('Chat error:', error);
       
-      setMessages(prev => prev.map(msg => 
-        msg.id === assistantMessageId 
-          ? { ...msg, content: 'Sorry, I encountered an error. Please try again.' }
-          : msg
-      ));
+      const errorMessage = {
+        id: Date.now() + 1,
+        messageId: Date.now() + 1,
+        role: 'error',
+        content: error.name === 'AbortError' 
+          ? 'Message generation stopped.' 
+          : 'Sorry, I encountered an error. Please try again.',
+        timestamp: new Date()
+      };
+      
+      addMessage(errorMessage);
     } finally {
       setIsLoading(false);
-      // Refresh chat history to show updated chat or new chat
-      setTimeout(() => {
-        fetchChatHistory();
-      }, 1000);
+      setIsStreaming(false);
+      setStreamingMessage('');
+      setChatState('input');
+      setAbortController(null);
     }
+  };
+
+  // Handle message editing
+  const handleEditMessage = (messageId, newContent) => {
+    const message = messageHistory.find(m => m.messageId === messageId);
+    if (message) {
+      handleSubmit(null, newContent, messageId);
+    }
+  };
+
+  // Handle message regeneration
+  const handleRegenerateMessage = async (messageId, model) => {
+    const message = messageHistory.find(m => m.messageId === messageId);
+    if (message && message.parentMessageId) {
+      const parentMessage = messageHistory.find(m => m.messageId === message.parentMessageId);
+      if (parentMessage) {
+        handleSubmit(null, parentMessage.content, parentMessage.messageId);
+      }
+    }
+  };
+
+  // Handle message switching
+  const handleMessageSwitch = (messageId, targetIndex) => {
+    // This would implement message branching logic
+    console.log('Switch message:', messageId, 'to index:', targetIndex);
+  };
+
+  // Handle feedback
+  const handleFeedback = async (messageId, feedbackType) => {
+    await handleChatFeedback(messageId, feedbackType, '', '');
+  };
+
+  // Handle continue generating
+  const handleContinueGenerating = () => {
+    handleSubmit(null, 'Continue generating from where you left off');
+  };
+
+  // Toggle document selection
+  const toggleDocumentSelection = (doc) => {
+    setSelectedDocuments(prev => {
+      const isSelected = prev.some(d => d.document_id === doc.document_id);
+      if (isSelected) {
+        return prev.filter(d => d.document_id !== doc.document_id);
+      } else {
+        return [...prev, doc];
+      }
+    });
   };
 
   const handleSignOut = () => {
@@ -236,28 +492,36 @@ export default function ChatPage({ session }) {
   const startNewChat = () => {
     setMessages([]);
     setCurrentChatId(null);
-    setTitleGenerated(false);
     setSidebarOpen(false);
+    setUploadedFiles([]);
+    setSelectedDocuments([]);
+    setStreamingMessage('');
+    setIsStreaming(false);
   };
 
   const loadChat = async (chatId) => {
-    if (currentChatId === chatId) return; // Already loaded
+    if (currentChatId === chatId) return;
     
-    setIsLoadingChat(true);
+    setIsLoading(true);
     setCurrentChatId(chatId);
+    chatSessionIdRef.current = chatId;
     
     try {
       const response = await fetch(`/api/chats/${chatId}/messages`);
       if (response.ok) {
         const data = await response.json();
-        // Convert timestamp strings to Date objects
-        const formattedMessages = (data.messages || []).map(msg => ({
-          ...msg,
-          timestamp: new Date(msg.timestamp)
-        }));
-        setMessages(formattedMessages);
         
-        // Update selected agent if chat has an agent
+        // Convert raw messages to our message format
+        const loadedMessages = (data.messages || []).map(msg => ({
+          id: msg.id,
+          messageId: msg.id,
+          role: msg.role,
+          content: msg.content_md || msg.content || '',
+          timestamp: new Date(msg.created_at)
+        }));
+        
+        setMessages(loadedMessages);
+        
         if (data.chat.agentId) {
           const chatAgent = agents.find(agent => agent.id === data.chat.agentId);
           if (chatAgent) {
@@ -265,42 +529,12 @@ export default function ChatPage({ session }) {
           }
         }
         
-        // Check if this chat needs a title and generate one if necessary
-        if (needsTitle(data.chat.title) && formattedMessages.length >= 2) {
-          // Chat has messages but no proper title - generate one
-          setTitleGenerated(false);
-          setTimeout(() => generateChatTitle(chatId), 500);
-        } else {
-          // Chat already has a proper title or not enough messages
-          setTitleGenerated(true);
-        }
-        
         setSidebarOpen(false);
-      } else {
-        console.error('Failed to load chat messages');
       }
     } catch (error) {
       console.error('Error loading chat:', error);
     } finally {
-      setIsLoadingChat(false);
-    }
-  };
-
-  const generateChatTitle = async (chatId) => {
-    try {
-      const response = await fetch(`/api/chats/${chatId}/generate-title`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Generated title:', data.title);
-        // Refresh chat history to show updated title
-        fetchChatHistory();
-      }
-    } catch (error) {
-      console.error('Error generating title:', error);
+      setIsLoading(false);
     }
   };
 
@@ -313,20 +547,21 @@ export default function ChatPage({ session }) {
       });
       
       if (response.ok) {
-        // If deleting current chat, clear the messages
         if (currentChatId === chatId) {
-          setMessages([]);
-          setCurrentChatId(null);
+          startNewChat();
         }
-        // Refresh chat history
         fetchChatHistory();
-      } else {
-        console.error('Failed to delete chat');
       }
     } catch (error) {
       console.error('Error deleting chat:', error);
     }
   };
+
+  // Handle setting context from document modal
+  const handleSetContext = useCallback((contextItems) => {
+    setSelectedContext(contextItems);
+    console.log('Context set:', contextItems);
+  }, []);
 
   const quickPrompts = [
     "What projects do I have?",
@@ -336,7 +571,8 @@ export default function ChatPage({ session }) {
   ];
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
+    <DocumentsProvider>
+      <DragDropWrapper onDrop={handleFileUpload} className="flex h-screen bg-gray-50 overflow-hidden">
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
@@ -345,15 +581,13 @@ export default function ChatPage({ session }) {
             onClick={() => setSidebarOpen(false)}
           />
           <div className="absolute left-0 top-0 bottom-0 w-80 max-w-sm">
-            <ChatSidebar 
-              session={session}
-              projects={projects}
-              chatHistory={chatHistory}
+            <EnhancedSidebar
+              user={session?.user}
+              assistants={agents}
+              selectedAssistant={selectedAgent}
+              onAssistantChange={setSelectedAgent}
+              onNewAssistant={() => console.log('New assistant')}
               onSignOut={handleSignOut}
-              onNewChat={startNewChat}
-              onLoadChat={loadChat}
-              onDeleteChat={deleteChat}
-              currentChatId={currentChatId}
               onClose={() => setSidebarOpen(false)}
               isMobile={true}
             />
@@ -363,17 +597,38 @@ export default function ChatPage({ session }) {
 
       {/* Desktop Sidebar */}
       <div className="hidden lg:block w-80 flex-shrink-0">
-        <ChatSidebar 
-          session={session}
-          projects={projects}
-          chatHistory={chatHistory}
+        <EnhancedSidebar
+          user={session?.user}
+          assistants={agents}
+          selectedAssistant={selectedAgent}
+          onAssistantChange={setSelectedAgent}
+          onNewAssistant={() => console.log('New assistant')}
           onSignOut={handleSignOut}
+          chatHistory={chatHistory}
           onNewChat={startNewChat}
           onLoadChat={loadChat}
           onDeleteChat={deleteChat}
           currentChatId={currentChatId}
         />
       </div>
+
+      {/* Document Sidebar */}
+      <DocumentSidebar
+        isOpen={documentSidebarOpen}
+        onClose={() => setDocumentSidebarOpen(false)}
+        documents={availableDocuments}
+        selectedDocuments={selectedDocuments}
+        onToggleDocument={toggleDocumentSelection}
+        onClearSelection={() => setSelectedDocuments([])}
+        onViewDocument={(doc) => console.log('View document:', doc)}
+      />
+
+      {/* Document Selection Modal */}
+      <DocumentSelectionModal
+        isOpen={documentModalOpen}
+        onClose={() => setDocumentModalOpen(false)}
+        onSetContext={handleSetContext}
+      />
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
@@ -390,119 +645,82 @@ export default function ChatPage({ session }) {
               <img 
                 src="/emmie-logo.svg" 
                 alt="Emmie" 
-                className="w-full h-auto max-w-full" 
+                className="w-full h-auto" 
                 style={{ maxHeight: '40px' }}
               />
             </div>
-            <Link href="/dashboard" className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors duration-200">
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
+            <button
+              onClick={() => setDocumentSidebarOpen(!documentSidebarOpen)}
+              className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors duration-200"
+            >
+              <Search className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
-        {/* Chat Messages */}
-        <div className="flex-1 overflow-y-auto">
-          {messages.length === 0 ? (
+        {/* Messages Area with Floating Input */}
+        <div className="flex-1 overflow-y-auto bg-white relative">
+          {messageHistory.length === 0 ? (
             <WelcomeScreen quickPrompts={quickPrompts} onPromptClick={setMessage} />
           ) : (
-            <div className="container-app py-6 space-y-6 animate-fade-in">
-              {messages.map((msg) => (
-                <ChatMessage key={msg.id} message={msg} />
-              ))}
-              
-              {isLoading && <LoadingMessage />}
-              <div ref={messagesEndRef} />
+            <div className="max-w-4xl mx-auto px-4 py-8 pb-40">
+              <div className="space-y-6">
+                {messageHistory.map((msg, index) => (
+                  <MessageBubble
+                    key={msg.messageId}
+                    message={msg}
+                    isStreaming={isLoading && index === messageHistory.length - 1}
+                    onEdit={handleEditMessage}
+                    onRegenerate={handleRegenerateMessage}
+                    onFeedback={handleFeedback}
+                    onContinue={msg.stopReason === StreamStopReason.CONTEXT_LENGTH ? handleContinueGenerating : undefined}
+                    onStop={isLoading && index === messageHistory.length - 1 ? stopGenerating : undefined}
+                  />
+                ))}
+                
+                {isLoading && chatState === 'loading' && (
+                  <LoadingMessage />
+                )}
+                
+                <div ref={messagesEndRef} />
+              </div>
             </div>
           )}
-        </div>
-
-        {/* Agent Selection */}
-        {agents.length > 0 && (
-          <div className="border-t border-gray-200 bg-gray-50 p-2">
-            <div className="container-app">
-              <div className="flex items-center gap-2 overflow-x-auto">
-                <span className="text-caption font-medium text-gray-500 flex-shrink-0">Ask:</span>
-                {agents.map((agent) => (
-                  <button
-                    key={agent.id}
-                    onClick={() => setSelectedAgent(agent)}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 flex-shrink-0 ${
-                      selectedAgent?.id === agent.id
-                        ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
-                    }`}
-                    style={{ 
-                      borderColor: selectedAgent?.id === agent.id ? agent.color : 'transparent',
-                      color: selectedAgent?.id === agent.id ? agent.color : undefined
-                    }}
-                  >
-                    <span>{agent.name}</span>
-                  </button>
-                ))}
-              </div>
+          
+          {/* Floating Input */}
+          <div className="sticky bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-white via-white to-transparent">
+            <div className="max-w-4xl mx-auto">
+              <ChatInput
+                message={message}
+                setMessage={setMessage}
+                onSubmit={handleSubmit}
+                isLoading={isLoading}
+                onFileUpload={handleFileUpload}
+                uploadedFiles={uploadedFiles}
+                selectedAgent={selectedAgent}
+                onOpenDocumentModal={() => setDocumentModalOpen(true)}
+                selectedContext={selectedContext}
+                selectedModel={selectedModel}
+                onModelChange={setSelectedModel}
+              />
             </div>
-          </div>
-        )}
-
-        {/* Input Form */}
-        <div className="border-t border-gray-200 bg-white p-4">
-          <div className="container-app">
-            <form onSubmit={handleSubmit}>
-              <div className="relative">
-                <textarea
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSubmit(e);
-                    }
-                  }}
-                  placeholder={`Message ${selectedAgent?.name || 'Emmie'}...`}
-                  className="input pr-12 resize-none"
-                  rows="1"
-                  style={{ minHeight: '52px', maxHeight: '120px' }}
-                  disabled={isLoading}
-                />
-                <button
-                  type="submit"
-                  disabled={!message.trim() || isLoading}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 p-2 text-gray-400 hover:text-emtek-navy disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-                >
-                  <Send className="w-5 h-5" />
-                </button>
-              </div>
-              <p className="text-caption mt-2 text-center">
-                {selectedAgent?.description || 'Emmie can make mistakes. Consider checking important information.'}
-              </p>
-            </form>
           </div>
         </div>
       </div>
-    </div>
+      </DragDropWrapper>
+    </DocumentsProvider>
   );
 }
 
-// Chat Sidebar Component
+// Chat Sidebar Component (simplified version)
 function ChatSidebar({ session, projects, chatHistory, onSignOut, onNewChat, onLoadChat, onDeleteChat, currentChatId, onClose, isMobile = false }) {
   return (
-    <div className="bg-white h-full shadow-strong border-r border-gray-100 flex flex-col animate-slide-up">
-      {/* Header */}
+    <div className="bg-white h-full shadow-strong border-r border-gray-100 flex flex-col">
       <div className="p-6 border-b border-gray-100">
         <div className="flex items-center justify-between mb-4">
-          <div className="w-full">
-            <img 
-              src="/emmie-logo.svg" 
-              alt="Emmie" 
-              className="w-full h-auto max-w-full" 
-              style={{ maxHeight: '40px' }}
-            />
-          </div>
+          <img src="/emmie-logo.svg" alt="Emmie" className="w-full h-auto" style={{ maxHeight: '40px' }} />
           {isMobile && onClose && (
-            <button
-              onClick={onClose}
-              className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors duration-200 ml-2"
-            >
+            <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors duration-200">
               <ArrowLeft className="w-5 h-5" />
             </button>
           )}
@@ -517,140 +735,61 @@ function ChatSidebar({ session, projects, chatHistory, onSignOut, onNewChat, onL
         </button>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        {/* Chat History */}
-        <div className="p-6 border-b border-gray-100">
-          <h3 className="text-caption font-semibold text-gray-500 uppercase tracking-wider mb-3">
-            Recent Chats
-          </h3>
-          <div className="space-y-1">
-            {chatHistory.map((chat) => (
-              <div
-                key={chat.id}
-                className={`p-3 rounded-xl hover:bg-gray-50 cursor-pointer group transition-all duration-200 relative ${
-                  currentChatId === chat.id ? 'bg-emtek-navy/5 border border-emtek-navy/20' : ''
-                }`}
-                onClick={() => onLoadChat && onLoadChat(chat.id)}
-              >
-                <div className="flex items-start gap-3">
-                  <MessageSquare className={`w-4 h-4 mt-0.5 group-hover:text-emtek-navy transition-colors duration-200 ${
-                    currentChatId === chat.id ? 'text-emtek-navy' : 'text-gray-400'
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-body font-medium line-clamp-2 group-hover:text-emtek-navy transition-colors duration-200 ${
-                      currentChatId === chat.id ? 'text-emtek-navy' : ''
-                    }`}>
-                      {chat.title}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <p className="text-caption">{chat.updatedAt}</p>
-                      {chat.agentName && (
-                        <span 
-                          className="text-xs px-2 py-0.5 rounded-full" 
-                          style={{ 
-                            backgroundColor: chat.agentColor + '20',
-                            color: chat.agentColor 
-                          }}
-                        >
-                          {chat.agentName}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {onDeleteChat && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (window.confirm('Are you sure you want to delete this chat?')) {
-                          onDeleteChat(chat.id);
-                        }
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600 transition-all duration-200"
-                      title="Delete chat"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  )}
+      <div className="flex-1 overflow-y-auto p-6">
+        <h3 className="text-caption font-semibold text-gray-500 uppercase tracking-wider mb-3">
+          Recent Chats
+        </h3>
+        <div className="space-y-1">
+          {chatHistory.map((chat) => (
+            <div
+              key={chat.id}
+              className={`p-3 rounded-xl hover:bg-gray-50 cursor-pointer group transition-all duration-200 relative ${
+                currentChatId === chat.id ? 'bg-emtek-navy/5 border border-emtek-navy/20' : ''
+              }`}
+              onClick={() => onLoadChat(chat.id)}
+            >
+              <div className="flex items-start gap-3">
+                <MessageSquare className={`w-4 h-4 mt-0.5 group-hover:text-emtek-navy transition-colors duration-200 ${
+                  currentChatId === chat.id ? 'text-emtek-navy' : 'text-gray-400'
+                }`} />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-body font-medium line-clamp-2 group-hover:text-emtek-navy transition-colors duration-200 ${
+                    currentChatId === chat.id ? 'text-emtek-navy' : ''
+                  }`}>
+                    {chat.title}
+                  </p>
                 </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (window.confirm('Delete this chat?')) {
+                      onDeleteChat(chat.id);
+                    }
+                  }}
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600 transition-all duration-200"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Projects Section */}
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-caption font-semibold text-gray-500 uppercase tracking-wider">
-              Projects
-            </h3>
-            <Link href="/projects" className="text-caption text-emtek-navy hover:text-emtek-blue transition-colors duration-200">
-              View all
-            </Link>
-          </div>
-          <div className="space-y-1">
-            {projects.slice(0, 5).map((project) => (
-              <div
-                key={project.id}
-                className="p-3 rounded-xl hover:bg-gray-50 cursor-pointer group transition-all duration-200"
-              >
-                <div className="flex items-start gap-3">
-                  <Folder className="w-4 h-4 text-gray-400 mt-0.5 group-hover:text-emtek-blue transition-colors duration-200" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-body font-medium line-clamp-1 group-hover:text-emtek-navy transition-colors duration-200">
-                      {project.name}
-                    </p>
-                    <span className={`badge badge-sm mt-1 ${
-                      project.status === 'active' ? 'badge-success' : 'badge-secondary'
-                    }`}>
-                      {project.status}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {projects.length === 0 && (
-              <Link href="/projects/new" className="block p-3 text-center border-2 border-dashed border-gray-200 rounded-xl hover:border-emtek-navy/30 hover:bg-emtek-navy/5 transition-all duration-200 group">
-                <Plus className="w-5 h-5 mx-auto mb-2 text-gray-400 group-hover:text-emtek-navy transition-colors duration-200" />
-                <p className="text-caption text-gray-500 group-hover:text-emtek-navy transition-colors duration-200">
-                  Create your first project
-                </p>
-              </Link>
-            )}
-          </div>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* User Section */}
-      <div className="p-6 border-t border-gray-100 bg-gradient-to-t from-gray-50/50">
+      <div className="p-6 border-t border-gray-100">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-emtek-navy rounded-xl flex items-center justify-center text-white font-semibold">
               {(session.user?.name || session.user?.email || 'G')[0].toUpperCase()}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-body font-medium truncate">
-                {session.user?.name || session.user?.email}
-              </p>
+            <div>
+              <p className="text-body font-medium">{session.user?.name || session.user?.email}</p>
               <p className="text-caption">Signed in</p>
             </div>
           </div>
-          <div className="flex items-center gap-1">
-            <Link
-              href="/settings"
-              className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-600 transition-all duration-200"
-              title="Settings"
-            >
-              <Settings className="w-4 h-4" />
-            </Link>
-            <button
-              onClick={onSignOut}
-              className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-600 transition-all duration-200"
-              title="Sign out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
+          <button onClick={onSignOut} className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-600 transition-all duration-200">
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </div>
@@ -662,9 +801,7 @@ function WelcomeScreen({ quickPrompts, onPromptClick }) {
   return (
     <div className="h-full flex items-center justify-center p-6 animate-fade-in">
       <div className="text-center max-w-2xl">
-        <h1 className="text-display mb-6">
-          Welcome to
-        </h1>
+        <h1 className="text-display mb-6">Welcome to</h1>
         <div className="flex justify-center mb-6">
           <img 
             src="/emmie-logo.svg" 
@@ -678,7 +815,6 @@ function WelcomeScreen({ quickPrompts, onPromptClick }) {
           Ask me anything about your projects, code, or how I can help you work more efficiently.
         </p>
         
-        {/* Quick Prompts */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
           {quickPrompts.map((prompt, index) => (
             <button
@@ -701,7 +837,6 @@ function WelcomeScreen({ quickPrompts, onPromptClick }) {
           ))}
         </div>
 
-        {/* Feature highlights */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-caption">
           <div className="flex items-center gap-2 justify-center">
             <BarChart3 className="w-4 h-4 text-emtek-navy" />
@@ -721,142 +856,332 @@ function WelcomeScreen({ quickPrompts, onPromptClick }) {
   );
 }
 
-// Presentation Components
-function UserBubble({ children }) {
+// Flat Canvas Message Component with React.memo
+const MessageBubble = React.memo(function MessageBubble({ message, isStreaming, onEdit, onRegenerate, onFeedback, onContinue, onStop }) {
+  const isUser = message.role === 'user';
+  const isAssistant = message.role === 'assistant';
+  const isError = message.role === 'error';
+
+  // User messages in chat bubble style
+  if (isUser) {
+    return (
+      <div className="flex w-full justify-end">
+        <div className="max-w-3xl w-full pl-16">
+          <div className="flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="rounded-xl px-4 py-3 bg-orange-50 text-gray-900 ml-auto border border-orange-100">
+                <div className="text-sm leading-relaxed whitespace-pre-wrap">
+                  {message.content}
+                </div>
+              </div>
+            </div>
+            <div className="w-6 h-6 bg-orange-200 rounded-full flex items-center justify-center text-orange-800 text-xs font-medium flex-shrink-0 mt-1">
+              U
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Assistant messages flat on canvas
   return (
-    <div className="max-w-[85%] self-end rounded-2xl rounded-br-md bg-gradient-to-br from-[#aedfe4] to-[#1275bc] px-4 py-3 text-white shadow-sm">
-      {children}
+    <div className="w-full">
+      <div className="max-w-4xl mx-auto">
+        {/* Model indicator */}
+        {isAssistant && message.metadata?.tool_calls && (
+          <div className="flex items-center gap-2 ml-9 mb-2">
+            <div className="flex items-center gap-2 px-2 py-1 bg-blue-50 border border-blue-200 rounded-md text-xs">
+              <Search className="w-3 h-3 text-blue-600" />
+              <span className="text-blue-800">Used document search</span>
+              <span className="text-blue-600">({message.metadata.tool_calls[0]?.results_count || 0} results)</span>
+            </div>
+          </div>
+        )}
+
+        {/* Emmie icon and response */}
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-6 h-6 flex items-center justify-center flex-shrink-0 mt-1">
+            <img src="/emmie-icon-d.svg" alt="Emmie" className="w-6 h-6" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div 
+              className="text-gray-900 text-sm leading-relaxed prose prose-sm max-w-none"
+              dangerouslySetInnerHTML={{ 
+                __html: renderMarkdown(message.content) + (isStreaming ? '<span class="inline-block w-2 h-4 bg-gray-400 ml-1 animate-pulse">|</span>' : '')
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Tool usage details (expandable) */}
+        {isAssistant && message.metadata?.tool_calls && !isStreaming && (
+          <div className="ml-9 mb-4">
+            <details className="group">
+              <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
+                <span>View search details</span>
+                <svg className="w-3 h-3 group-open:rotate-90 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </summary>
+              <div className="mt-2 p-3 bg-gray-50 rounded-lg text-xs">
+                <div className="mb-2">
+                  <span className="font-medium text-gray-700">Search Query:</span>
+                  <span className="ml-2 text-gray-600">"{message.metadata.tool_calls[0]?.arguments?.query}"</span>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-700">Results Found:</span>
+                  <span className="ml-2 text-gray-600">{message.metadata.tool_calls[0]?.results_count || 0} document chunks</span>
+                </div>
+              </div>
+            </details>
+          </div>
+        )}
+        
+        {/* Action buttons */}
+        {(isAssistant && !isStreaming) && (
+          <div className="flex items-center gap-3 ml-9 mb-4">
+            <button 
+              onClick={() => onFeedback && onFeedback(message.messageId, 'like')}
+              className="p-1 text-gray-400 hover:text-green-600 transition-colors"
+              title="Like"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L9 7v13m-3-7h-.5A1.5 1.5 0 004 14.5v-3A1.5 1.5 0 015.5 10H7" />
+              </svg>
+            </button>
+            <button 
+              onClick={() => onFeedback && onFeedback(message.messageId, 'dislike')}
+              className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+              title="Dislike"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.905 0-.714.211-1.412.608-2.006L15 17V4m-3 7h.5a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5H11" />
+              </svg>
+            </button>
+            <button 
+              onClick={() => onRegenerate && onRegenerate(message.messageId)}
+              className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+              title="Regenerate"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+            {onContinue && (
+              <button 
+                onClick={onContinue}
+                className="px-2 py-1 text-xs text-gray-600 hover:text-gray-800 transition-colors"
+              >
+                Continue
+              </button>
+            )}
+          </div>
+        )}
+        
+        {/* Stop button for streaming */}
+        {isStreaming && onStop && (
+          <div className="flex items-center gap-2 ml-9 mb-4">
+            <button 
+              onClick={onStop}
+              className="px-3 py-1 text-xs text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+            >
+              Stop generating
+            </button>
+          </div>
+        )}
+        
+        {/* Error messages */}
+        {isError && (
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-6 h-6 flex items-center justify-center flex-shrink-0 mt-1">
+              <img src="/emmie-icon-d.svg" alt="Emmie" className="w-6 h-6" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-red-800 text-sm leading-relaxed whitespace-pre-wrap">
+                {message.content}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
-}
+});
 
-function AssistantBlock({ children }) {
-  // Flat on background: no border, no bubble
-  return <div className="w-full">{children}</div>;
-}
-
-// Code Block Component with Copy Button
-function CodeBlock({ children, className, node, ...props }) {
-  const [copied, setCopied] = useState(false);
-  const match = /language-(\w+)/.exec(className || '');
-  const language = match ? match[1] : '';
-  const codeContent = String(children).replace(/\n$/, '');
+// Clean Chat Input Component
+function ChatInput({ 
+  message, 
+  setMessage, 
+  onSubmit, 
+  isLoading, 
+  onFileUpload, 
+  uploadedFiles, 
+  selectedAgent, 
+  onOpenDocumentModal, 
+  selectedContext,
+  selectedModel,
+  onModelChange 
+}) {
+  const textareaRef = useRef(null);
   
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(codeContent);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (message.trim() && !isLoading) {
+      onSubmit(e);
+    }
   };
 
-  // Handle mermaid specially
-  if (language === 'mermaid') {
-    return (
-      <div className="mermaid bg-white p-4 rounded-lg border border-gray-200 my-4 dark:bg-gray-800 dark:border-gray-600">
-        {codeContent}
-      </div>
-    );
-  }
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  };
 
-  // Handle inline code
-  if (!match) {
-    return (
-      <code className="text-emtek-navy dark:text-blue-400 bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-sm">
-        {children}
-      </code>
-    );
-  }
+  const adjustTextareaHeight = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+    }
+  };
 
-  // Handle code blocks
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [message]);
+
   return (
-    <div className="relative group my-4">
-      <div className="flex items-center justify-between bg-gray-800 dark:bg-gray-900 px-4 py-2 rounded-t-lg">
-        <span className="text-xs text-gray-300 font-medium">{language || 'code'}</span>
-        <button
-          onClick={copyToClipboard}
-          className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition-colors"
-        >
-          {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-          {copied ? 'Copied!' : 'Copy'}
-        </button>
-      </div>
-      <pre className="bg-gray-900 dark:bg-gray-950 text-white p-4 rounded-b-lg overflow-x-auto text-base font-mono leading-relaxed">
-        <code className="text-white">
-          {codeContent}
-        </code>
-      </pre>
-    </div>
-  );
-}
+    <form onSubmit={handleSubmit} className="relative">
+      {/* Main input area */}
+      <div className="bg-white border border-gray-200 rounded-xl shadow-lg">
+        <div className="p-4">
+          <textarea
+            ref={textareaRef}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="This is how multi\nLines should look\nand input active state"
+            className="w-full resize-none bg-transparent border-0 outline-none placeholder-gray-400 text-gray-900 text-sm leading-6"
+            style={{ minHeight: '60px', maxHeight: '200px' }}
+            disabled={isLoading}
+          />
+          
+          {/* Selected context display */}
+          {selectedContext.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100">
+              <div className="flex items-center gap-2 text-xs text-gray-600 mb-2 w-full">
+                <BookOpen className="w-3 h-3" />
+                <span className="font-medium">Selected Context ({selectedContext.length} items)</span>
+              </div>
+              {selectedContext.map((item) => (
+                <div key={item.id} className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-md px-2 py-1 text-xs">
+                  <FileText className="w-3 h-3 text-blue-600" />
+                  <span className="truncate max-w-32 text-blue-800">{item.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
 
-// Chat Message Component
-function ChatMessage({ message }) {
-  return (
-    <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-      {message.role === 'user' ? (
-        <div className="flex items-end gap-3">
-          <div className="flex flex-col items-end">
-            <UserBubble>
-              <div>{message.content}</div>
-            </UserBubble>
-            <p className="text-caption mt-1">
-              {message.timestamp instanceof Date ? message.timestamp.toLocaleTimeString() : 'Unknown time'}
-            </p>
-          </div>
-          <div className="w-10 h-10 bg-gray-200 rounded-xl flex items-center justify-center flex-shrink-0">
-            <User className="w-5 h-5 text-gray-600" />
-          </div>
+          {/* File previews */}
+          {uploadedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100">
+              {uploadedFiles.map((file) => (
+                <div key={file.id} className="flex items-center gap-2 bg-gray-50 rounded-md px-2 py-1 text-xs">
+                  <FileText className="w-3 h-3" />
+                  <span className="truncate max-w-32">{file.name}</span>
+                  {file.uploading && <span className="text-gray-500">...</span>}
+                  {file.error && <span className="text-red-500">✕</span>}
+                  {file.uploaded && <span className="text-green-500">✓</span>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="flex items-start gap-3 w-full">
-          <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
-            <img src="/emmie-icon-d.svg" alt="Emmie" className="w-10 h-10" />
+        
+        {/* Bottom toolbar */}
+        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50 rounded-b-lg">
+          <div className="flex items-center gap-3">
+            {/* File/Document button */}
+            <button
+              type="button"
+              onClick={onOpenDocumentModal}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
+            >
+              <Paperclip className="w-4 h-4" />
+              <span>File</span>
+            </button>
+            
+            {/* Model selector */}
+            <div className="relative">
+              <select
+                value={selectedModel}
+                onChange={(e) => onModelChange(e.target.value)}
+                className="flex items-center gap-2 px-3 py-1.5 pr-8 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors border-0 bg-transparent cursor-pointer appearance-none"
+              >
+                <option value="gpt-4o-mini">GPT-4o Mini (Legacy)</option>
+                <option value={GPT5_MODELS.NANO}>GPT-5 Nano (Fast)</option>
+                <option value={GPT5_MODELS.MINI}>GPT-5 Mini (Balanced)</option>
+                <option value={GPT5_MODELS.FULL}>GPT-5 Full (Advanced)</option>
+              </select>
+              <div className="absolute right-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none">
+                <svg viewBox="0 0 12 12" fill="currentColor">
+                  <path d="M3 4.5L6 7.5L9 4.5"/>
+                </svg>
+              </div>
+            </div>
+            
+            {/* Agent selector */}
+            <div className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors cursor-pointer">
+              <Bot className="w-4 h-4" />
+              <span>{selectedAgent?.name || 'General'}</span>
+              <div className="w-3 h-3 text-gray-400">
+                <svg viewBox="0 0 12 12" fill="currentColor">
+                  <path d="M3 4.5L6 7.5L9 4.5"/>
+                </svg>
+              </div>
+            </div>
           </div>
-          <div className="flex-1">
-            <AssistantBlock>
-              <div 
-                className="prose prose-sm max-w-none dark:prose-invert
-                  prose-headings:text-gray-900 dark:prose-headings:text-gray-100
-                  prose-p:text-gray-700 dark:prose-p:text-gray-300
-                  prose-strong:text-gray-900 dark:prose-strong:text-gray-100
-                  prose-code:text-emtek-navy dark:prose-code:text-blue-400
-                  prose-code:bg-gray-100 dark:prose-code:bg-gray-800
-                  prose-code:px-1 prose-code:py-0.5 prose-code:rounded
-                  prose-blockquote:border-l-emtek-navy dark:prose-blockquote:border-l-blue-400
-                  prose-a:text-emtek-blue dark:prose-a:text-blue-400
-                  prose-li:text-gray-700 dark:prose-li:text-gray-300
-                  prose-table:table-auto prose-table:border-collapse
-                  prose-th:border prose-th:border-gray-300 dark:prose-th:border-gray-600
-                  prose-th:bg-gray-50 dark:prose-th:bg-gray-800 prose-th:px-4 prose-th:py-2
-                  prose-td:border prose-td:border-gray-300 dark:prose-td:border-gray-600
-                  prose-td:px-4 prose-td:py-2"
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
-              />
-            </AssistantBlock>
-            <p className="text-caption mt-1">
-              {message.timestamp instanceof Date ? message.timestamp.toLocaleTimeString() : 'Unknown time'}
-            </p>
-          </div>
+          
+          {/* Send button */}
+          <button
+            type="submit"
+            disabled={!message.trim() || isLoading}
+            className="p-2 bg-gray-900 text-white rounded-full hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {isLoading ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
+          </button>
         </div>
-      )}
-    </div>
+      </div>
+    </form>
   );
 }
 
 // Loading Message Component
 function LoadingMessage() {
   return (
-    <div className="flex items-start gap-3 w-full">
-      <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
-        <img src="/emmie-icon-d.svg" alt="Emmie" className="w-10 h-10" />
-      </div>
-      <div className="flex-1">
-        <div className="flex items-center gap-3">
-          <div className="flex space-x-1">
-            <div className="w-2 h-2 bg-emtek-navy rounded-full animate-bounce"></div>
-            <div className="w-2 h-2 bg-emtek-navy rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-            <div className="w-2 h-2 bg-emtek-navy rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+    <div className="flex justify-start w-full">
+      <div className="max-w-3xl w-full pr-16">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 flex items-center justify-center flex-shrink-0 mt-1">
+            <img src="/emmie-icon-d.svg" alt="Emmie" className="w-8 h-8" />
           </div>
-          <span className="text-caption text-gray-500">Thinking...</span>
+          <div className="flex-1">
+            <div className="bg-white border border-gray-200 shadow-sm rounded-2xl px-4 py-3">
+              <div className="flex items-center gap-3">
+                <div className="flex space-x-1">
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                </div>
+                <span className="text-sm text-gray-500">Thinking...</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

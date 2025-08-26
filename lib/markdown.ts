@@ -17,11 +17,34 @@ export const md = new MarkdownIt({
   .use(container, 'warning')
   .use(container, 'danger');
 
+// Make images clickable by wrapping them in links that open in new tabs
+const defaultImageRenderer = md.renderer.rules.image;
+md.renderer.rules.image = (tokens, idx, options, env, self) => {
+  const token = tokens[idx];
+  const src = token.attrGet('src');
+  const alt = token.content;
+  
+  if (src) {
+    // Create a clickable image that opens in new tab
+    return `<img src="${src}" alt="${alt}" style="max-width: 24rem; border-radius: 0.5rem; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1); cursor: pointer; border: 1px solid #e5e7eb; transition: box-shadow 0.2s;" onclick="window.open('${src}', '_blank', 'noopener,noreferrer')" title="Click to open in new tab" />`;
+  }
+  
+  // Fall back to default renderer
+  return defaultImageRenderer ? defaultImageRenderer(tokens, idx, options, env, self) : '';
+};
+
 /**
  * Render markdown to HTML safely
  */
-export function renderMarkdown(markdown: string): string {
+export function renderMarkdown(markdown: string, excludeImages: boolean = false): string {
   if (!markdown) return '';
+  
+  // If excluding images, strip image markdown syntax before rendering
+  if (excludeImages) {
+    const markdownWithoutImages = markdown.replace(/!\[([^\]]*)\]\([^)]+\)/g, '');
+    return md.render(markdownWithoutImages);
+  }
+  
   return md.render(markdown);
 }
 

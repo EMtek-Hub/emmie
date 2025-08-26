@@ -1,6 +1,6 @@
 import { requireApiPermission } from '../../../lib/apiAuth';
 import { supabaseAdmin, EMTEK_ORG_ID } from '../../../lib/db';
-import { openai, DEFAULT_CHAT_MODEL } from '../../../lib/ai';
+import { openai, GPT5_MODELS, selectGPT5Model } from '../../../lib/ai';
 import { NextApiRequest, NextApiResponse } from 'next';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -60,20 +60,17 @@ Conversation:
 ${conversation}
     `;
 
-    const completion = await openai.chat.completions.create({
-      model: DEFAULT_CHAT_MODEL,
-      messages: [
-        { 
-          role: 'system', 
-          content: 'You extract structured project knowledge as strict JSON. Return only valid JSON with no additional text or formatting.' 
-        },
-        { 
-          role: 'user', 
-          content: prompt 
-        }
-      ],
-      temperature: 0.1,
-      max_tokens: 2000
+    // Use GPT-5 for better structured data extraction
+    const selectedModel = selectGPT5Model({
+      isComplexTask: true, // Structured extraction is complex
+      messageLength: conversation.length
+    });
+
+    const completion = await openai.responses.create({
+      model: selectedModel,
+      instructions: 'You extract structured project knowledge as strict JSON. Return only valid JSON with no additional text or formatting.',
+      input: prompt,
+      reasoning: { effort: 'medium' as any } // Medium reasoning for structured extraction
     });
 
     // Parse JSON with error handling
@@ -87,11 +84,11 @@ ${conversation}
     };
 
     try {
-      const content = completion.choices[0].message.content || '{}';
+      const content = completion.output_text || '{}';
       extractedData = JSON.parse(content);
     } catch (parseError) {
       console.error('JSON parse error:', parseError);
-      console.error('Raw content:', completion.choices[0].message.content);
+      console.error('Raw content:', completion.output_text);
       // Continue with empty data rather than failing
     }
 
