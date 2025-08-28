@@ -9,7 +9,7 @@ import {
   Image as ImageIcon,
   Search,
   Globe,
-  Tool,
+  Settings,
   Brain,
   ChevronDown,
   ChevronUp
@@ -21,7 +21,7 @@ export function ToolVisualization({ toolCall, isRunning }) {
     search: <Search className="w-4 h-4" />,
     internet_search: <Globe className="w-4 h-4" />,
     image_generation: <ImageIcon className="w-4 h-4" />,
-    default: <Tool className="w-4 h-4" />
+    default: <Settings className="w-4 h-4" />
   };
 
   const icon = toolIcons[toolCall?.tool_name] || toolIcons.default;

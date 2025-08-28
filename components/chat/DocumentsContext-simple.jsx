@@ -72,6 +72,53 @@ export const DocumentsProvider = ({ children }) => {
     setSelectedFolders([]);
   }, []);
 
+  const handleUpload = useCallback(async (files) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      // Upload each file individually
+      for (const file of files) {
+        const fileFormData = new FormData();
+        fileFormData.append('file', file);
+        await uploadFile(fileFormData, null);
+      }
+      
+      await refreshFolders();
+    } catch (error) {
+      console.error('Error uploading documents:', error);
+      setError('Failed to upload documents. Please try again.');
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [uploadFile, refreshFolders]);
+
+  const createFileFromLink = useCallback(async (url, folderId) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const response = await fetch('/api/user/file/from-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, folder_id: folderId })
+      });
+
+      if (!response.ok) throw new Error('Failed to create file from link');
+      
+      const data = await response.json();
+      await refreshFolders();
+      return data;
+    } catch (error) {
+      console.error('Failed to create file from link:', error);
+      setError('Failed to create file from link. Please try again.');
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [refreshFolders]);
+
   const value = {
     files: [],
     folders,
@@ -94,6 +141,8 @@ export const DocumentsProvider = ({ children }) => {
     createFolder,
     deleteItem,
     uploadFile,
+    handleUpload,
+    createFileFromLink,
     setCurrentFolder,
     setPresentingDocument,
     setSearchQuery,

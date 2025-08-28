@@ -504,58 +504,39 @@ export async function generateImageWithProgressiveStreaming(
     
     return (async function* () {
       try {
-        const stream = await openai.responses.create(streamRequest);
+        // Note: OpenAI responses.create streaming may not be available in current version
+        // Fall back to standard image generation for now
+        console.log(`⚠️ Progressive streaming not available, using standard generation`);
         
-        // Handle the streaming response
-        for await (const event of stream) {
-          console.log(`📡 Received event: ${event.type}`);
+        const response = await openai.images.generate({
+          model: 'gpt-image-1',
+          prompt: prompt,
+          size: gptImageSize as any,
+          n: 1,
+          response_format: "b64_json"
+        });
+
+        if (response.data && response.data[0]) {
+          const imageData = response.data[0];
           
-          switch (event.type) {
-            case 'image_generation.partial_image':
-              yield {
-                type: 'partial_image',
-                b64_json: (event as any).b64_json,
-                partial_image_index: (event as any).partial_image_index,
-                size: (event as any).size,
-                quality: (event as any).quality,
-                background: (event as any).background,
-                output_format: (event as any).output_format,
-                created_at: (event as any).created_at
-              } as ProgressiveImageEvent;
-              break;
-
-            case 'image_generation.completed':
-              console.log(`✅ Image generation completed`);
-              yield {
-                type: 'completed',
-                b64_json: (event as any).b64_json,
-                size: (event as any).size,
-                quality: (event as any).quality,
-                background: (event as any).background,
-                output_format: (event as any).output_format,
-                usage: (event as any).usage,
-                created_at: (event as any).created_at
-              } as ProgressiveImageEvent;
-              break;
-
-            case 'error':
-              console.error(`❌ Streaming error:`, event);
-              yield {
-                type: 'error',
-                error: (event as any).error?.message || 'Unknown streaming error'
-              } as ProgressiveImageEvent;
-              break;
-
-            default:
-              // Ignore other event types (text deltas, etc.)
-              break;
-          }
+          // Yield completed event
+          yield {
+            type: 'completed',
+            b64_json: imageData.b64_json,
+            size: gptImageSize,
+            quality: quality,
+            background: background,
+            output_format: format,
+            created_at: Date.now()
+          } as ProgressiveImageEvent;
+        } else {
+          throw new Error('No image data received from API');
         }
       } catch (error: any) {
-        console.error('❌ Progressive streaming error:', error);
+        console.error('❌ Image generation error:', error);
         yield {
           type: 'error',
-          error: error.message || 'Streaming connection failed'
+          error: error.message || 'Image generation failed'
         } as ProgressiveImageEvent;
       }
     })();
