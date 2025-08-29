@@ -1,0 +1,329 @@
+/* Enhanced thinking and loading animations */
+
+/* Thinking pulse animation for the container */
+@keyframes thinking-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+}
+
+.animate-thinking-pulse {
+  animation: thinking-pulse 2s ease-in-out infinite;
+}
+
+/* Thinking icon bounce */
+@keyframes thinking-bounce {
+  0%, 20%, 50%, 80%, 100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-4px);
+  }
+  60% {
+    transform: translateY(-2px);
+  }
+}
+
+.animate-thinking-bounce {
+  animation: thinking-bounce 1.5s ease-in-out infinite;
+}
+
+/* Thinking dots animations - staggered for wave effect */
+@keyframes thinking-dot-1 {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  20% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
+}
+
+@keyframes thinking-dot-2 {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
+}
+
+@keyframes thinking-dot-3 {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
+}
+
+.animate-thinking-dot-1 {
+  animation: thinking-dot-1 1.8s ease-in-out infinite;
+}
+
+.animate-thinking-dot-2 {
+  animation: thinking-dot-2 1.8s ease-in-out infinite;
+}
+
+.animate-thinking-dot-3 {
+  animation: thinking-dot-3 1.8s ease-in-out infinite;
+}
+
+/* Typing indicator animations - classic bounce */
+@keyframes typing-1 {
+  0%, 60%, 100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes typing-2 {
+  0%, 60%, 100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes typing-3 {
+  0%, 60%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.animate-typing-1 {
+  animation: typing-1 1.4s ease-in-out infinite;
+}
+
+.animate-typing-2 {
+  animation: typing-2 1.4s ease-in-out infinite;
+}
+
+.animate-typing-3 {
+  animation: typing-3 1.4s ease-in-out infinite;
+}
+
+/* Fade in animation for smooth appearance */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.3s ease-out;
+}
+
+/* Slide in from left */
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 0.4s ease-out;
+}
+
+/* Gentle scale in */
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scale-in {
+  animation: scale-in 0.2s ease-out;
+}
+
+/* Progress bar animation for thinking states */
+@keyframes progress {
+  0% {
+    width: 0%;
+  }
+  100% {
+    width: 100%;
+  }
+}
+
+.animate-progress {
+  animation: progress 3s ease-in-out infinite;
+}
+
+/* Shimmer effect for processing states */
+@keyframes shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: calc(200px + 100%) 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.4),
+    transparent
+  );
+  background-size: 200px 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Breathing animation for waiting states */
+@keyframes breathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.8;
+  }
+}
+
+.animate-breathe {
+  animation: breathe 2.5s ease-in-out infinite;
+}
+
+/* Spinning animation for processing */
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
+
+/* Pulsing glow effect */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(59, 130, 246, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.8);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Slide out animation for completion */
+@keyframes slide-out-up {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+}
+
+.animate-slide-out-up {
+  animation: slide-out-up 0.3s ease-in;
+}
+
+/* Utility classes for smooth transitions */
+.transition-thinking {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.thinking-enter {
+  opacity: 0;
+  transform: translateY(10px) scale(0.95);
+}
+
+.thinking-enter-active {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition: opacity 300ms ease-out, transform 300ms ease-out;
+}
+
+.thinking-exit {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.thinking-exit-active {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.95);
+  transition: opacity 200ms ease-in, transform 200ms ease-in;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .animate-thinking-pulse {
+    animation-duration: 1.5s;
+  }
+  
+  .animate-thinking-bounce {
+    animation-duration: 1.2s;
+  }
+  
+  .animate-thinking-dot-1,
+  .animate-thinking-dot-2,
+  .animate-thinking-dot-3 {
+    animation-duration: 1.5s;
+  }
+}
+
+/* Reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .animate-thinking-pulse,
+  .animate-thinking-bounce,
+  .animate-thinking-dot-1,
+  .animate-thinking-dot-2,
+  .animate-thinking-dot-3,
+  .animate-typing-1,
+  .animate-typing-2,
+  .animate-typing-3,
+  .animate-breathe,
+  .animate-spin-slow,
+  .animate-pulse-glow {
+    animation: none;
+  }
+  
+  .thinking-enter-active,
+  .thinking-exit-active {
+    transition: none;
+  }
+}

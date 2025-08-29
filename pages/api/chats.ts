@@ -68,9 +68,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (req.method === 'POST') {
-    const { title, projectId, agentId } = req.body;
+    const { title, projectId, agentId, hasContent } = req.body;
     
     try {
+      // Only create chats that will have actual content or are explicitly titled
+      if (!hasContent && !title) {
+        return res.status(400).json({ error: 'Cannot create empty chat without title' });
+      }
+
       // Create new chat session
       const { data: chat, error: chatError } = await supabaseAdmin
         .from('chats')
@@ -91,6 +96,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(500).json({ error: 'Failed to create chat' });
       }
 
+      console.log('Chat created successfully:', chat.id);
       return res.json({ chat });
     } catch (error) {
       console.error('Unexpected error:', error);

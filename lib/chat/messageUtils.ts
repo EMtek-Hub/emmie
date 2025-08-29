@@ -184,22 +184,32 @@ export async function createChatSession(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         agentId: agentId || 0,
-        title: title || null
+        title: title || null,
+        // Add a flag to indicate this is a proper chat session
+        hasContent: true
       })
     });
     
     if (!response.ok) {
-      console.error('Failed to create chat session:', response.status);
-      // Return a temporary ID if the API fails
-      return `temp-${Date.now()}`;
+      const errorText = await response.text();
+      console.error('Failed to create chat session:', response.status, errorText);
+      // Throw error instead of returning temp ID to let caller handle it
+      throw new Error(`Chat creation failed: ${response.status}`);
     }
     
     const data = await response.json();
-    return data.chatId || data.id || `temp-${Date.now()}`;
+    const chatId = data.chat?.id || data.chatId || data.id;
+    
+    if (!chatId) {
+      throw new Error('No chat ID returned from server');
+    }
+    
+    console.log('Chat session created successfully:', chatId);
+    return chatId;
   } catch (error) {
     console.error('Error creating chat session:', error);
-    // Return a temporary ID to allow the chat to continue
-    return `temp-${Date.now()}`;
+    // Re-throw error to let caller handle it properly
+    throw error;
   }
 }
 

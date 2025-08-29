@@ -3,6 +3,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Import thinking animations */
+@import './thinking-animations.css';
+
 @layer base {
   /* Global base styles */
   html {
@@ -20,7 +23,7 @@
 
   /* Improved focus styles */
   *:focus {
-    @apply outline-none ring-2 ring-emtek-aqua/50 ring-offset-2 ring-offset-white;
+    @apply outline-none;
   }
 
   /* Custom scrollbar */
@@ -98,7 +101,7 @@
 
   /* Form Controls */
   .input {
-    @apply block w-full rounded-xl border border-gray-200 px-4 py-3 text-sm transition-all duration-200 placeholder:text-gray-400 focus:border-emtek-blue focus:ring-2 focus:ring-emtek-blue/20 disabled:bg-gray-50 disabled:text-gray-500;
+    @apply block w-full rounded-xl border border-gray-200 px-4 py-3 text-sm transition-all duration-200 placeholder:text-gray-400 disabled:bg-gray-50 disabled:text-gray-500;
   }
 
   .textarea {

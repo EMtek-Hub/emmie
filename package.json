@@ -4,7 +4,7 @@
   "description": "Boilerplate template for EMtek Hub-integrated tools with centralized OAuth2/OIDC authentication",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 5000",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

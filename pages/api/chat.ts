@@ -4,12 +4,16 @@ import {
   openai, 
   selectGPT5Model, 
   selectReasoningEffort,
-  determineAllowedTools,
-  getAllAvailableTools,
-  CUSTOM_TOOLS,
-  generateEmbedding,
-  detectImageGenerationRequest
+  detectImageGenerationRequest,
+  generateEmbedding
 } from '../../lib/ai';
+import { 
+  toolExecutor, 
+  getAgentToolsConfig, 
+  convertToolsToOpenAIFormat,
+  convertToolsToAssistantFormat,
+  ToolExecutionContext 
+} from '../../lib/toolExecution';
 import { NextApiRequest, NextApiResponse } from 'next';
 
 export const config = { 
@@ -32,6 +36,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const email = session.user.email;
   const displayName = session.user.name;
 
+  // Extract user content and image info early
+  const userContent = messages[messages.length - 1]?.content || '';
+  const hasImages = imageUrls.length > 0;
+
+  console.log(`🔍 Chat API Debug - AgentId: ${agentId}, ChatId: ${chatId}`);
+
   try {
     // Ensure user exists
     await ensureUser(userId, email, displayName);
@@ -39,6 +49,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // 1) Load agent information if specified
     let agent = null;
     if (agentId) {
+      console.log(`🔍 Looking up agent: ${agentId} with org_id: ${EMTEK_ORG_ID}`);
       const { data: agentData, error: agentError } = await supabaseAdmin
         .from('chat_agents')
         .select('*')
@@ -52,6 +63,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(404).json({ error: 'Chat agent not found' });
       }
       agent = agentData;
+      
+      // Check if agent uses OpenAI Assistant
+      if (agent.agent_mode === 'openai_assistant' && agent.openai_assistant_id) {
+        console.log(`🤖 Using OpenAI Assistant: ${agent.openai_assistant_id} for agent: ${agent.name}`);
+        return handleOpenAIAssistantChat(req, res, {
+          agent,
+          chatId,
+          projectId,
+          userContent,
+          hasImages,
+          imageUrls,
+          messages,
+          userId,
+          session
+        });
+      }
     }
 
     // 2) Ensure chat exists
@@ -78,8 +105,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // 3) Insert user message with attachments if present
-    const userContent = messages[messages.length - 1]?.content || '';
-    const hasImages = imageUrls.length > 0;
     const messageType = hasImages ? 'mixed' : 'text';
     const attachments = hasImages ? imageUrls.map((url: string) => ({
       type: 'image',
@@ -210,32 +235,31 @@ Always prioritize accuracy, safety, and helpful guidance for EMtek staff.`;
         input = userContent;
       }
 
-      // 8) Determine allowed tools based on context
-      const allowedTools = determineAllowedTools({
-        hasUploadedImages: hasImages,
-        agentId,
-        projectId,
-        mode
-      });
+      // 8) Get agent-specific tools from the new tool management system
+      const agentTools = agentId ? await getAgentToolsConfig(agentId) : [];
+      console.log(`🔧 Agent tools loaded: ${agentTools.map(t => t.tool_name).join(', ')}`);
 
       // 9) Detect if this is an image generation request
       const isImageGenerationRequest = detectImageGenerationRequest(userContent, messages.slice(-5));
       
-      // 10) Prepare GPT-5 tools (both custom and built-in)
-      const gpt5Tools: any[] = [];
+      // 10) Prepare tools for the AI models
+      const availableTools: any[] = [];
       
-      // Add built-in tools
-      allowedTools.forEach(tool => {
-        if (tool.type === 'image_generation' || tool.type === 'web_search' || tool.type === 'code_interpreter') {
-          gpt5Tools.push(tool);
-        }
-      });
+      // Add built-in tools that are always available
+      availableTools.push({ type: 'image_generation' });
+      availableTools.push({ type: 'web_search' });
       
-      // Add custom tools in the expected format
-      CUSTOM_TOOLS.forEach(tool => {
-        const customTool = allowedTools.find(t => t.name === tool.name);
-        if (customTool) {
-          gpt5Tools.push(tool);
+      // Add agent-specific tools
+      agentTools.forEach(tool => {
+        if (tool.tool_type === 'code_interpreter') {
+          availableTools.push({ type: 'code_interpreter' });
+        } else if (tool.tool_type === 'file_search') {
+          availableTools.push({ type: 'file_search' });
+        } else if (tool.tool_type === 'function' && tool.function_schema) {
+          availableTools.push({
+            type: 'function',
+            function: tool.function_schema
+          });
         }
       });
 
@@ -282,28 +306,17 @@ Always prioritize accuracy, safety, and helpful guidance for EMtek staff.`;
 
       // 12) Use native Responses API for proper image generation support
       console.log(`🚀 Using GPT-5 Responses API with model: ${selectedModel}`);
-      console.log(`🔧 Available tools: ${gpt5Tools.map(t => t.type || t.name).join(', ')}`);
+      console.log(`🔧 Available tools: ${availableTools.map(t => t.type || t.function?.name).join(', ')}`);
       console.log(`🎨 Image generation request detected: ${isImageGenerationRequest}`);
       
       // Build tools for Responses API
       const responsesTools: any[] = [];
       
-      // Add native image generation tool
-      if (allowedTools.some(t => t.type === 'image_generation')) {
-        responsesTools.push({ type: "image_generation" });
-      }
-      
-      // Add other native tools
-      allowedTools.forEach(tool => {
-        if (tool.type === 'web_search' || tool.type === 'code_interpreter') {
+      // Add tools from the available tools list
+      availableTools.forEach(tool => {
+        if (tool.type === 'image_generation' || tool.type === 'web_search' || tool.type === 'code_interpreter' || tool.type === 'file_search') {
           responsesTools.push(tool);
-        }
-      });
-      
-      // Add custom tools in the proper format
-      CUSTOM_TOOLS.forEach(tool => {
-        const customTool = allowedTools.find(t => t.name === tool.name);
-        if (customTool) {
+        } else if (tool.type === 'function') {
           responsesTools.push(tool);
         }
       });
@@ -350,18 +363,10 @@ Always prioritize accuracy, safety, and helpful guidance for EMtek staff.`;
           // Build tools array for Chat Completions API
           const chatTools: any[] = [];
           
-          // Add custom tools as functions
-          CUSTOM_TOOLS.forEach(tool => {
-            const customTool = allowedTools.find(t => t.name === tool.name);
-            if (customTool) {
-              chatTools.push({
-                type: 'function',
-                function: {
-                  name: tool.name,
-                  description: tool.description,
-                  parameters: tool.parameters
-                }
-              });
+          // Add function tools from available tools
+          availableTools.forEach(tool => {
+            if (tool.type === 'function') {
+              chatTools.push(tool);
             }
           });
           
@@ -418,24 +423,8 @@ Always prioritize accuracy, safety, and helpful guidance for EMtek staff.`;
           
           conversationInput += `User: ${userContent}\n\nAssistant:`;
 
-          // Prepare tools for Responses API
-          const responsesApiTools: any[] = [];
-          
-          // Add custom tools
-          CUSTOM_TOOLS.forEach(tool => {
-            const customTool = allowedTools.find(t => t.name === tool.name);
-            if (customTool) {
-              responsesApiTools.push(tool);
-            }
-          });
-          
-          // Add built-in tools
-          if (allowedTools.some(t => t.type === 'web_search')) {
-            responsesApiTools.push({ type: 'web_search' });
-          }
-          if (allowedTools.some(t => t.type === 'code_interpreter')) {
-            responsesApiTools.push({ type: 'code_interpreter' });
-          }
+          // Prepare tools for Responses API using available tools
+          const responsesApiTools: any[] = [...responsesTools];
 
           // Use Responses API with proper input format
           let responseInput: any;
@@ -720,5 +709,242 @@ async function handleImageGenerationResult(base64Data: string, chatId: string): 
     console.error('Image handling error:', error);
     // Fallback to data URL
     return `data:image/png;base64,${base64Data}`;
+  }
+}
+
+// Handle OpenAI Assistant chat integration
+async function handleOpenAIAssistantChat(
+  req: NextApiRequest, 
+  res: NextApiResponse, 
+  params: {
+    agent: any;
+    chatId: string;
+    projectId?: string;
+    userContent: string;
+    hasImages: boolean;
+    imageUrls: string[];
+    messages: any[];
+    userId: string;
+    session: any;
+  }
+) {
+  const { agent, chatId, projectId, userContent, hasImages, imageUrls, messages, userId } = params;
+
+  try {
+    // 1) Ensure chat exists
+    let chat_id = chatId;
+    if (!chat_id) {
+      const { data: chat, error } = await supabaseAdmin
+        .from('chats')
+        .insert([{
+          org_id: EMTEK_ORG_ID,
+          project_id: projectId || null,
+          agent_id: agent.id,
+          title: null,
+          mode: 'normal',
+          created_by: userId
+        }])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Chat creation error:', error);
+        return res.status(500).json({ error: error.message });
+      }
+      chat_id = chat.id;
+    }
+
+    // 2) Insert user message
+    const messageType = hasImages ? 'mixed' : 'text';
+    const attachments = hasImages ? imageUrls.map((url: string) => ({
+      type: 'image',
+      url: url,
+      alt: 'User uploaded image'
+    })) : null;
+
+    const userMessageData: any = {
+      chat_id,
+      role: 'user',
+      content_md: userContent,
+      model: 'user'
+    };
+
+    // Try to add multimodal fields if they exist
+    try {
+      const { error: columnCheck } = await supabaseAdmin
+        .from('messages')
+        .select('message_type, attachments')
+        .limit(0);
+      
+      if (!columnCheck) {
+        userMessageData.message_type = messageType;
+        userMessageData.attachments = attachments;
+      }
+    } catch (e) {
+      console.log('Multimodal columns not found, skipping attachments');
+    }
+
+    const { data: userMsg, error: umErr } = await supabaseAdmin
+      .from('messages')
+      .insert([userMessageData])
+      .select()
+      .single();
+
+    if (umErr) {
+      console.error('User message error:', umErr);
+      return res.status(500).json({ error: umErr.message });
+    }
+
+    // 3) Setup SSE
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+    });
+
+    const send = (event: string, data: any) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    try {
+      // 4) Create thread for this conversation
+      const thread = await openai.beta.threads.create();
+
+      // 5) Add conversation history to thread (last 10 messages)
+      const conversationHistory = messages.slice(-10);
+      for (const msg of conversationHistory.slice(0, -1)) {
+        if (msg.role === 'user' || msg.role === 'assistant') {
+          await openai.beta.threads.messages.create(thread.id, {
+            role: msg.role === 'assistant' ? 'assistant' : 'user',
+            content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+          });
+        }
+      }
+
+      // 6) Add current user message with images if present
+      let messageContent: any = userContent;
+      
+      if (hasImages && imageUrls.length > 0) {
+        messageContent = [
+          { type: 'text', text: userContent },
+          ...imageUrls.map(url => ({
+            type: 'image_url',
+            image_url: { url: url }
+          }))
+        ];
+      }
+
+      await openai.beta.threads.messages.create(thread.id, {
+        role: 'user',
+        content: messageContent
+      });
+
+      // 7) Run the assistant and stream the response
+      let assistantContent = '';
+      
+      const stream = await openai.beta.threads.runs.create(thread.id, {
+        assistant_id: agent.openai_assistant_id,
+        stream: true
+      });
+
+      for await (const event of stream) {
+        if (event.event === 'thread.message.delta') {
+          const delta = event.data.delta;
+          if (delta.content && delta.content[0]) {
+            const contentBlock = delta.content[0];
+            if (contentBlock.type === 'text' && contentBlock.text) {
+              const textDelta = contentBlock.text.value || '';
+              if (textDelta) {
+                assistantContent += textDelta;
+                send('token', { delta: textDelta });
+              }
+            }
+          }
+        } else if (event.event === 'thread.message.completed') {
+          // Message completed, continue
+        } else if (event.event === 'thread.run.completed') {
+          // Run completed successfully
+          break;
+        } else if (event.event === 'thread.run.failed') {
+          console.error('Assistant run failed:', event.data);
+          send('error', { error: 'Assistant run failed' });
+          break;
+        } else if (event.event === 'thread.run.requires_action') {
+          // Handle tool calls if the assistant needs them
+          const toolCalls = event.data.required_action?.submit_tool_outputs?.tool_calls || [];
+          
+          for (const toolCall of toolCalls) {
+            if (toolCall.function) {
+              send('tool_call_start', { 
+                toolName: toolCall.function.name,
+                toolType: 'function' 
+              });
+
+              // Handle function call (you could extend this to support more tools)
+              let toolResult = `Function ${toolCall.function.name} called with arguments: ${toolCall.function.arguments}`;
+              
+              send('tool_result', { 
+                toolName: toolCall.function.name,
+                result: toolResult 
+              });
+
+              // Submit tool output back to the assistant
+              await openai.beta.threads.runs.submitToolOutputs(thread.id, event.data.id, {
+                tool_outputs: [{
+                  tool_call_id: toolCall.id,
+                  output: toolResult
+                }]
+              });
+            }
+          }
+        }
+      }
+
+      // 8) Save assistant message
+      const assistantMessageData: any = {
+        chat_id,
+        role: 'assistant',
+        content_md: assistantContent,
+        model: `openai-assistant:${agent.openai_assistant_id}`
+      };
+
+      // Try to add multimodal fields if they exist
+      try {
+        const { error: columnCheck } = await supabaseAdmin
+          .from('messages')
+          .select('message_type, attachments')
+          .limit(0);
+        
+        if (!columnCheck) {
+          assistantMessageData.message_type = 'text';
+        }
+      } catch (e) {
+        console.log('Multimodal columns not found for assistant message, skipping');
+      }
+
+      const { data: aMsg, error: amErr } = await supabaseAdmin
+        .from('messages')
+        .insert([assistantMessageData])
+        .select()
+        .single();
+
+      if (amErr) {
+        console.error('Assistant message error:', amErr);
+        send('error', { error: amErr.message });
+        return res.end();
+      }
+
+      send('done', { chatId: chat_id, messageId: aMsg.id });
+      res.end();
+
+    } catch (assistantError) {
+      console.error('OpenAI Assistant error:', assistantError);
+      send('error', { error: 'Failed to process with OpenAI Assistant' });
+      res.end();
+    }
+
+  } catch (error) {
+    console.error('OpenAI Assistant handler error:', error);
+    return res.status(500).json({ error: 'Internal server error with OpenAI Assistant' });
   }
 }

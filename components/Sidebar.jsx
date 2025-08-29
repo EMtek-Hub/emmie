@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LogOut, X, Home, Folder, MessageSquare } from 'lucide-react';
+import { LogOut, X, Home, Folder, MessageSquare, Settings, Cog } from 'lucide-react';
 import Link from 'next/link';
 
 /**
@@ -9,11 +9,14 @@ import Link from 'next/link';
 export default function Sidebar({ user, links = [], onSignOut, onClose, isMobile = false }) {
   const defaultLinks = [
     { href: '/', label: 'Dashboard', icon: <Home className="w-4 h-4" /> },
-    { href: '/projects', label: 'Projects', icon: <Folder className="w-4 h-4" /> },
     { href: '/chat', label: 'Chat', icon: <MessageSquare className="w-4 h-4" /> },
+    { href: '/settings', label: 'Settings', icon: <Settings className="w-4 h-4" /> },
   ];
 
   const sidebarLinks = links.length > 0 ? links : defaultLinks;
+
+  // Check if user is admin
+  const isAdmin = user?.groups?.includes('EMtek-Hub-Admins') || false;
 
   const handleSignOut = () => {
     if (onSignOut) {
@@ -80,13 +83,23 @@ export default function Sidebar({ user, links = [], onSignOut, onClose, isMobile
                 </div>
                 <div className="text-xs text-gray-500">Signed in</div>
               </div>
-              <button
-                onClick={handleSignOut}
-                className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
-                title="Sign out"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                <Link
+                  href="/settings"
+                  className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                  title="Settings"
+                  onClick={() => isMobile && onClose && onClose()}
+                >
+                  <Cog className="w-4 h-4" />
+                </Link>
+                <button
+                  onClick={handleSignOut}
+                  className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                  title="Sign out"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -29,6 +29,12 @@ import EnhancedSidebar from '../components/chat/EnhancedSidebar';
 import { StopGeneratingButton } from '../components/chat/MessageActions';
 import DocumentSelectionModal from '../components/chat/DocumentSelectionModal';
 import { 
+  ThinkingAnimation, 
+  TypingIndicator, 
+  SmartThinkingIndicator,
+  ToolThinkingIndicator 
+} from '../components/chat/ThinkingAnimation';
+import { 
   Send, 
   Plus, 
   MessageSquare, 
@@ -80,6 +86,7 @@ export default function ChatPage({ session }) {
   const [documentModalOpen, setDocumentModalOpen] = useState(false);
   const [selectedContext, setSelectedContext] = useState([]);
   const [selectedModel, setSelectedModel] = useState(GPT5_MODELS.MINI); // Default to GPT-5 Mini
+  const [isCreatingChat, setIsCreatingChat] = useState(false); // Prevent duplicate chat creation
   
   // Refs
   const messagesEndRef = useRef(null);
@@ -140,41 +147,89 @@ export default function ChatPage({ session }) {
 
   const fetchProjects = async () => {
     try {
+      console.log('Fetching projects...');
       const response = await fetch('/api/projects');
+      
+      console.log('Projects API response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('Projects data received:', data);
         setProjects(data.projects || []);
+      } else {
+        // Handle non-200 responses
+        const errorText = await response.text();
+        console.error('Projects API error:', response.status, errorText);
+        
+        // Set empty projects array as fallback
+        setProjects([]);
+        
+        // Show user-friendly message for specific errors
+        if (response.status === 401) {
+          console.warn('Authentication required for projects');
+        } else if (response.status === 403) {
+          console.warn('Not authorized to view projects');
+        } else if (response.status === 500) {
+          console.warn('Server error loading projects');
+        }
       }
     } catch (error) {
       console.error('Failed to fetch projects:', error);
+      // Set empty projects array as fallback to prevent UI crashes
+      setProjects([]);
+      
+      // Additional error context
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        console.error('Network error - check if development server is running');
+      }
     }
   };
 
   const fetchChatHistory = async () => {
     try {
+      console.log('Fetching chat history...');
       const response = await fetch('/api/chats');
+      
+      console.log('Chat history API response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('Chat history data received:', data);
         setChatHistory(data.chats || []);
+      } else {
+        const errorText = await response.text();
+        console.error('Chat history API error:', response.status, errorText);
+        setChatHistory([]); // Fallback to empty array
       }
     } catch (error) {
       console.error('Failed to fetch chat history:', error);
+      setChatHistory([]); // Fallback to empty array
     }
   };
 
   const fetchAgents = async () => {
     try {
+      console.log('Fetching agents...');
       const response = await fetch('/api/agents');
+      
+      console.log('Agents API response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('Agents data received:', data);
         setAgents(data.agents || []);
         const defaultAgent = data.agents?.find(agent => agent.department === 'General');
         if (defaultAgent) {
           setSelectedAgent(defaultAgent);
         }
+      } else {
+        const errorText = await response.text();
+        console.error('Agents API error:', response.status, errorText);
+        setAgents([]); // Fallback to empty array
       }
     } catch (error) {
       console.error('Failed to fetch agents:', error);
+      setAgents([]); // Fallback to empty array
     }
   };
 
@@ -247,7 +302,7 @@ export default function ChatPage({ session }) {
     e?.preventDefault();
     
     const messageToSend = messageOverride || message.trim();
-    if (!messageToSend || isLoading) return;
+    if (!messageToSend || isLoading || isCreatingChat) return;
 
     // Create abort controller
     const controller = new AbortController();
@@ -275,10 +330,26 @@ export default function ChatPage({ session }) {
     setStreamingMessage('');
     setChatState('streaming');
 
-    // Create or continue chat session
+    // Create or continue chat session with proper race condition prevention
     let chatId = currentChatId;
-    if (!chatId) {
-      chatId = await createChatSession(selectedAgent?.id || 0);
+    if (!chatId && !isCreatingChat) {
+      setIsCreatingChat(true);
+      try {
+        chatId = await createChatSession(selectedAgent?.id || 0);
+        setCurrentChatId(chatId);
+        chatSessionIdRef.current = chatId;
+      } catch (error) {
+        console.error('Failed to create chat session:', error);
+        // Use a temporary ID to allow the chat to continue
+        chatId = `temp-${Date.now()}`;
+        setCurrentChatId(chatId);
+        chatSessionIdRef.current = chatId;
+      } finally {
+        setIsCreatingChat(false);
+      }
+    } else if (!chatId) {
+      // Another chat creation is in progress, use a temporary ID
+      chatId = `temp-${Date.now()}`;
       setCurrentChatId(chatId);
       chatSessionIdRef.current = chatId;
     }
@@ -290,8 +361,18 @@ export default function ChatPage({ session }) {
         content: msg.content
       }));
 
-      // Choose API endpoint based on selected model
-      const apiEndpoint = Object.values(GPT5_MODELS).includes(selectedModel) ? '/api/chat-gpt5' : '/api/chat-simple';
+      // Choose API endpoint based on agent type and selected model
+      let apiEndpoint;
+      if (selectedAgent?.openai_assistant_id) {
+        // OpenAI Assistant - use dedicated OpenAI Assistants API
+        apiEndpoint = '/api/chat';
+      } else if (Object.values(GPT5_MODELS).includes(selectedModel)) {
+        // GPT-5 model - use GPT-5 Responses API
+        apiEndpoint = '/api/chat-gpt5';
+      } else {
+        // Legacy model - use simple chat API
+        apiEndpoint = '/api/chat-simple';
+      }
       
       const response = await fetch(apiEndpoint, {
         method: 'POST',
@@ -678,8 +759,22 @@ export default function ChatPage({ session }) {
                   />
                 ))}
                 
-                {isLoading && chatState === 'loading' && (
-                  <LoadingMessage />
+                {/* Show thinking animation when loading and not streaming */}
+                {isLoading && !isStreaming && (
+                  <LoadingMessage 
+                    state="thinking"
+                    userMessage={message}
+                    chatState={chatState}
+                  />
+                )}
+                
+                {/* Show smart thinking animation when processing but not yet streaming */}
+                {isLoading && chatState === 'streaming' && !streamingMessage && (
+                  <SmartThinkingIndicator 
+                    isStreaming={false}
+                    userMessage={messages[messages.length - 1]?.content || ''}
+                    className="animate-fade-in-up"
+                  />
                 )}
                 
                 <div ref={messagesEndRef} />
@@ -698,6 +793,8 @@ export default function ChatPage({ session }) {
                 onFileUpload={handleFileUpload}
                 uploadedFiles={uploadedFiles}
                 selectedAgent={selectedAgent}
+                onAgentChange={setSelectedAgent}
+                agents={agents}
                 onOpenDocumentModal={() => setDocumentModalOpen(true)}
                 selectedContext={selectedContext}
                 selectedModel={selectedModel}
@@ -1018,6 +1115,8 @@ function ChatInput({
   onFileUpload, 
   uploadedFiles, 
   selectedAgent, 
+  onAgentChange,
+  agents,
   onOpenDocumentModal, 
   selectedContext,
   selectedModel,
@@ -1061,7 +1160,7 @@ function ChatInput({
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="This is how multi\nLines should look\nand input active state"
+            placeholder="Talk to Emmie"
             className="w-full resize-none bg-transparent border-0 outline-none placeholder-gray-400 text-gray-900 text-sm leading-6"
             style={{ minHeight: '60px', maxHeight: '200px' }}
             disabled={isLoading}
@@ -1112,42 +1211,44 @@ function ChatInput({
               <span>File</span>
             </button>
             
-            {/* Model selector */}
-            <div className="relative">
-              <select
-                value={selectedModel}
-                onChange={(e) => onModelChange(e.target.value)}
-                className="flex items-center gap-2 px-3 py-1.5 pr-8 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors border-0 bg-transparent cursor-pointer appearance-none"
-              >
-                <option value="gpt-4o-mini">GPT-4o Mini (Legacy)</option>
-                <option value={GPT5_MODELS.NANO}>GPT-5 Nano (Fast)</option>
-                <option value={GPT5_MODELS.MINI}>GPT-5 Mini (Balanced)</option>
-                <option value={GPT5_MODELS.FULL}>GPT-5 Full (Advanced)</option>
-              </select>
-              <div className="absolute right-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none">
-                <svg viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M3 4.5L6 7.5L9 4.5"/>
-                </svg>
-              </div>
-            </div>
+            {/* Agent selector (first) */}
+            <AgentSelector 
+              agents={agents}
+              selectedAgent={selectedAgent}
+              onAgentChange={onAgentChange}
+            />
             
-            {/* Agent selector */}
-            <div className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors cursor-pointer">
-              <Bot className="w-4 h-4" />
-              <span>{selectedAgent?.name || 'General'}</span>
-              <div className="w-3 h-3 text-gray-400">
-                <svg viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M3 4.5L6 7.5L9 4.5"/>
-                </svg>
+            {/* Model selector (hidden for OpenAI assistants) */}
+            {!(selectedAgent?.openai_assistant_id || selectedAgent?.agent_mode === 'openai_assistant') && (
+              <div className="relative">
+                <select
+                  value={selectedModel}
+                  onChange={(e) => onModelChange(e.target.value)}
+                  className="flex items-center gap-2 px-3 py-1.5 pr-8 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors border-0 bg-transparent cursor-pointer appearance-none"
+                >
+                  <option value="gpt-4o-mini">GPT-4o Mini (Legacy)</option>
+                  <option value={GPT5_MODELS.NANO}>GPT-5 Nano (Fast)</option>
+                  <option value={GPT5_MODELS.MINI}>GPT-5 Mini (Balanced)</option>
+                  <option value={GPT5_MODELS.FULL}>GPT-5 Full (Advanced)</option>
+                </select>
+                <div className="absolute right-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none">
+                  <svg viewBox="0 0 12 12" fill="currentColor">
+                    <path d="M3 4.5L6 7.5L9 4.5"/>
+                  </svg>
+                </div>
               </div>
-            </div>
+            )}
           </div>
           
-          {/* Send button */}
+          {/* Send button with thinking status */}
           <button
             type="submit"
             disabled={!message.trim() || isLoading}
-            className="p-2 bg-gray-900 text-white rounded-full hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className={`p-2 rounded-full transition-all duration-200 ${
+              isLoading 
+                ? 'bg-blue-500 animate-thinking-pulse cursor-not-allowed' 
+                : 'bg-gray-900 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed'
+            } text-white`}
           >
             {isLoading ? (
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -1161,29 +1262,101 @@ function ChatInput({
   );
 }
 
-// Loading Message Component
-function LoadingMessage() {
+// Enhanced Loading Message Component with Smart Thinking
+function LoadingMessage({ 
+  state = 'thinking', 
+  toolCall = null, 
+  userMessage = '',
+  chatState = 'input'
+}) {
+  // Determine the best animation based on context
+  if (toolCall) {
+    return (
+      <ToolThinkingIndicator 
+        toolName={toolCall.tool_name || toolCall.name}
+        toolType={toolCall.type || 'function'}
+        phase="running"
+        className="animate-fade-in-up"
+      />
+    );
+  }
+
+  // Show different states based on chat state
+  if (chatState === 'streaming') {
+    return (
+      <SmartThinkingIndicator 
+        isStreaming={true}
+        userMessage={userMessage}
+        className="animate-fade-in-up"
+      />
+    );
+  }
+
   return (
-    <div className="flex justify-start w-full">
-      <div className="max-w-3xl w-full pr-16">
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 flex items-center justify-center flex-shrink-0 mt-1">
-            <img src="/emmie-icon-d.svg" alt="Emmie" className="w-8 h-8" />
-          </div>
-          <div className="flex-1">
-            <div className="bg-white border border-gray-200 shadow-sm rounded-2xl px-4 py-3">
-              <div className="flex items-center gap-3">
-                <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                </div>
-                <span className="text-sm text-gray-500">Thinking...</span>
-              </div>
+    <SmartThinkingIndicator 
+      isStreaming={false}
+      userMessage={userMessage}
+      className="animate-fade-in-up"
+    />
+  );
+}
+
+// Agent Selector Component
+function AgentSelector({ agents, selectedAgent, onAgentChange }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const handleAgentSelect = (agent) => {
+    onAgentChange(agent);
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
+      >
+        <Bot className="w-4 h-4" />
+        <span>{selectedAgent?.name || 'General'}</span>
+        <div className={`w-3 h-3 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+          <svg viewBox="0 0 12 12" fill="currentColor">
+            <path d="M3 4.5L6 7.5L9 4.5"/>
+          </svg>
+        </div>
+      </button>
+
+      {isOpen && (
+        <>
+          <div 
+            className="fixed inset-0 z-10" 
+            onClick={() => setIsOpen(false)}
+          />
+          <div className="absolute bottom-full left-0 mb-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-64 overflow-y-auto">
+            <div className="p-2">
+              {agents.map((agent) => (
+                <button
+                  key={agent.id}
+                  onClick={() => handleAgentSelect(agent)}
+                  className={`w-full flex items-center gap-3 p-2 rounded-lg text-left hover:bg-gray-50 transition-colors ${
+                    selectedAgent?.id === agent.id ? 'bg-blue-50 border border-blue-200' : ''
+                  }`}
+                >
+                  <div 
+                    className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-medium flex-shrink-0"
+                    style={{ backgroundColor: agent.color }}
+                  >
+                    {agent.name.charAt(0)}
+                  </div>
+                  <span className="font-medium text-gray-900 text-sm truncate">
+                    {agent.name}
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
