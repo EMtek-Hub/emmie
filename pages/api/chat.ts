@@ -36,11 +36,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const email = session.user.email;
   const displayName = session.user.name;
 
-  // Extract user content and image info early
-  const userContent = messages[messages.length - 1]?.content || '';
+  // Validate messages array first
+  if (!messages?.length) {
+    return res.status(400).json({ error: 'Messages array is required and cannot be empty' });
+  }
+
+  // Extract user content with robust fallbacks
+  const lastMessage = messages[messages.length - 1];
+  const userContent = lastMessage?.content || lastMessage?.content_md || '';
+  
+  // Validate content is not empty
+  if (!userContent.trim()) {
+    return res.status(400).json({ error: 'Message content cannot be empty' });
+  }
+  
   const hasImages = imageUrls.length > 0;
 
-  console.log(`🔍 Chat API Debug - AgentId: ${agentId}, ChatId: ${chatId}`);
+  console.log(`🔍 Chat API Debug - AgentId: ${agentId}, ChatId: ${chatId}, Content: "${userContent}"`);
 
   try {
     // Ensure user exists
@@ -112,28 +124,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       alt: 'User uploaded image'
     })) : null;
 
-    // Build insert object conditionally to handle missing columns
+    // Build insert object with multimodal support (columns exist since migration 0006)
     const userMessageData: any = {
       chat_id,
       role: 'user',
       content_md: userContent,
-      model: 'user'
+      model: 'user',
+      message_type: messageType,
+      attachments: attachments
     };
-
-    // Try to add multimodal fields if they exist
-    try {
-      const { error: columnCheck } = await supabaseAdmin
-        .from('messages')
-        .select('message_type, attachments')
-        .limit(0);
-      
-      if (!columnCheck) {
-        userMessageData.message_type = messageType;
-        userMessageData.attachments = attachments;
-      }
-    } catch (e) {
-      console.log('Multimodal columns not found, skipping attachments');
-    }
 
     const { data: userMsg, error: umErr } = await supabaseAdmin
       .from('messages')
@@ -146,15 +145,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: umErr.message });
     }
 
-    // 4) Prepare SSE
+    // 4) Prepare SSE with heartbeat support
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
     });
 
+    // Setup heartbeat to prevent serverless timeouts
+    const keepAlive = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+      } catch (e) {
+        console.log('SSE connection closed during heartbeat');
+        clearInterval(keepAlive);
+      }
+    }, 15000);
+
+    // Handle connection close
+    req.on('close', () => {
+      console.log('Client disconnected from SSE');
+      clearInterval(keepAlive);
+    });
+
+    req.on('end', () => {
+      console.log('SSE connection ended');
+      clearInterval(keepAlive);
+    });
+
     const send = (event: string, data: any) => {
-      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      try {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      } catch (e) {
+        console.log('Failed to send SSE event, connection likely closed');
+        clearInterval(keepAlive);
+      }
     };
 
     try {
@@ -520,24 +545,22 @@ Always prioritize accuracy, safety, and helpful guidance for EMtek staff.`;
         chat_id,
         role: 'assistant',
         content_md: assistantContent,
-        model: selectedModel
+        model: selectedModel,
+        message_type: isGeneratingImage ? 'image' : 'text'
       };
 
-      // Try to add multimodal fields if they exist
-      try {
-        const { error: columnCheck } = await supabaseAdmin
-          .from('messages')
-          .select('message_type, attachments')
-          .limit(0);
-        
-        if (!columnCheck) {
-          assistantMessageData.message_type = functionCalls.some(tc => tc.type === 'image_generation_call') ? 'image' : 'text';
-          if (functionCalls.length > 0) {
-            assistantMessageData.tool_calls = functionCalls;
-          }
-        }
-      } catch (e) {
-        console.log('Multimodal columns not found for assistant message, skipping');
+      // Add tool calls if any were made
+      if (functionCalls.length > 0) {
+        assistantMessageData.tool_calls = functionCalls;
+      }
+
+      // Add attachments for generated images
+      if (isGeneratingImage) {
+        assistantMessageData.attachments = [{
+          type: 'generated_image',
+          alt: `AI-generated image: ${userContent}`,
+          model: selectedModel
+        }];
       }
 
       const { data: aMsg, error: amErr } = await supabaseAdmin
@@ -680,14 +703,15 @@ async function handleImageGenerationResult(base64Data: string, chatId: string): 
     // Convert base64 to buffer and upload to storage
     const imageBuffer = Buffer.from(base64Data, 'base64');
     
-    // Generate a unique filename
-    const timestamp = Date.now();
-    const filename = `generated-image-${chatId}-${timestamp}.png`;
+    // Generate a unique filename with crypto for consistency
+    const crypto = require('crypto');
+    const uniqueFilename = `generated-${crypto.randomUUID()}.png`;
+    const storagePath = `generated-images/${uniqueFilename}`;
     
-    // Upload to Supabase storage (adjust bucket name as needed)
+    // Upload to Supabase storage (using media bucket for consistency)
     const { data, error } = await supabaseAdmin.storage
-      .from('chat-images')
-      .upload(filename, imageBuffer, {
+      .from('media')
+      .upload(storagePath, imageBuffer, {
         contentType: 'image/png',
         upsert: false
       });
@@ -698,12 +722,18 @@ async function handleImageGenerationResult(base64Data: string, chatId: string): 
       return `data:image/png;base64,${base64Data}`;
     }
 
-    // Get public URL
-    const { data: urlData } = supabaseAdmin.storage
-      .from('chat-images')
-      .getPublicUrl(filename);
+    // Create signed URL
+    const { data: signedUrlData, error: signedUrlError } = await supabaseAdmin.storage
+      .from('media')
+      .createSignedUrl(storagePath, 24 * 60 * 60);
 
-    return urlData.publicUrl;
+    if (signedUrlError || !signedUrlData) {
+      console.error('Signed URL creation error:', signedUrlError);
+      // Fallback to data URL
+      return `data:image/png;base64,${base64Data}`;
+    }
+
+    return signedUrlData.signedUrl;
 
   } catch (error) {
     console.error('Image handling error:', error);
@@ -731,9 +761,12 @@ async function handleOpenAIAssistantChat(
   const { agent, chatId, projectId, userContent, hasImages, imageUrls, messages, userId } = params;
 
   try {
-    // 1) Ensure chat exists
+    // 1) Ensure chat exists and get/create thread
     let chat_id = chatId;
+    let thread_id: string | null = null;
+
     if (!chat_id) {
+      // Create new chat
       const { data: chat, error } = await supabaseAdmin
         .from('chats')
         .insert([{
@@ -752,6 +785,43 @@ async function handleOpenAIAssistantChat(
         return res.status(500).json({ error: error.message });
       }
       chat_id = chat.id;
+      
+      // Create thread once for new chat
+      const thread = await openai.beta.threads.create();
+      thread_id = thread.id;
+      
+      // Store thread ID in database
+      await supabaseAdmin
+        .from('chats')
+        .update({ openai_thread_id: thread_id })
+        .eq('id', chat_id);
+        
+      console.log(`🧵 Created new thread: ${thread_id} for chat: ${chat_id}`);
+    } else {
+      // Get existing thread ID for this chat
+      const { data: chatRow } = await supabaseAdmin
+        .from('chats')
+        .select('openai_thread_id')
+        .eq('id', chat_id)
+        .single();
+      
+      thread_id = chatRow?.openai_thread_id ?? null;
+      
+      if (!thread_id) {
+        // Create thread if none exists for this chat
+        const thread = await openai.beta.threads.create();
+        thread_id = thread.id;
+        
+        // Store thread ID in database
+        await supabaseAdmin
+          .from('chats')
+          .update({ openai_thread_id: thread_id })
+          .eq('id', chat_id);
+          
+        console.log(`🧵 Created thread for existing chat: ${thread_id} for chat: ${chat_id}`);
+      } else {
+        console.log(`🧵 Reusing existing thread: ${thread_id} for chat: ${chat_id}`);
+      }
     }
 
     // 2) Insert user message
@@ -766,23 +836,10 @@ async function handleOpenAIAssistantChat(
       chat_id,
       role: 'user',
       content_md: userContent,
-      model: 'user'
+      model: 'user',
+      message_type: messageType,
+      attachments: attachments
     };
-
-    // Try to add multimodal fields if they exist
-    try {
-      const { error: columnCheck } = await supabaseAdmin
-        .from('messages')
-        .select('message_type, attachments')
-        .limit(0);
-      
-      if (!columnCheck) {
-        userMessageData.message_type = messageType;
-        userMessageData.attachments = attachments;
-      }
-    } catch (e) {
-      console.log('Multimodal columns not found, skipping attachments');
-    }
 
     const { data: userMsg, error: umErr } = await supabaseAdmin
       .from('messages')
@@ -795,33 +852,45 @@ async function handleOpenAIAssistantChat(
       return res.status(500).json({ error: umErr.message });
     }
 
-    // 3) Setup SSE
+    // 3) Setup SSE with heartbeat support
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
     });
 
+    // Setup heartbeat to prevent serverless timeouts
+    const keepAlive = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+      } catch (e) {
+        console.log('OpenAI Assistant SSE connection closed during heartbeat');
+        clearInterval(keepAlive);
+      }
+    }, 15000);
+
+    // Handle connection close
+    req.on('close', () => {
+      console.log('OpenAI Assistant client disconnected from SSE');
+      clearInterval(keepAlive);
+    });
+
+    req.on('end', () => {
+      console.log('OpenAI Assistant SSE connection ended');
+      clearInterval(keepAlive);
+    });
+
     const send = (event: string, data: any) => {
-      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      try {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      } catch (e) {
+        console.log('Failed to send OpenAI Assistant SSE event, connection likely closed');
+        clearInterval(keepAlive);
+      }
     };
 
     try {
-      // 4) Create thread for this conversation
-      const thread = await openai.beta.threads.create();
-
-      // 5) Add conversation history to thread (last 10 messages)
-      const conversationHistory = messages.slice(-10);
-      for (const msg of conversationHistory.slice(0, -1)) {
-        if (msg.role === 'user' || msg.role === 'assistant') {
-          await openai.beta.threads.messages.create(thread.id, {
-            role: msg.role === 'assistant' ? 'assistant' : 'user',
-            content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-          });
-        }
-      }
-
-      // 6) Add current user message with images if present
+      // 4) Add current user message to the persistent thread
       let messageContent: any = userContent;
       
       if (hasImages && imageUrls.length > 0) {
@@ -834,17 +903,18 @@ async function handleOpenAIAssistantChat(
         ];
       }
 
-      await openai.beta.threads.messages.create(thread.id, {
+      await openai.beta.threads.messages.create(thread_id!, {
         role: 'user',
         content: messageContent
       });
 
-      // 7) Run the assistant and stream the response
+      // 5) Run the assistant with background instructions and stream the response
       let assistantContent = '';
       
-      const stream = await openai.beta.threads.runs.create(thread.id, {
+      const stream = await openai.beta.threads.runs.create(thread_id!, {
         assistant_id: agent.openai_assistant_id,
-        stream: true
+        stream: true,
+        additional_instructions: agent.background_instructions || undefined
       });
 
       for await (const event of stream) {
@@ -873,30 +943,45 @@ async function handleOpenAIAssistantChat(
           // Handle tool calls if the assistant needs them
           const toolCalls = event.data.required_action?.submit_tool_outputs?.tool_calls || [];
           
-          for (const toolCall of toolCalls) {
-            if (toolCall.function) {
+          const tool_outputs = await Promise.all(
+            toolCalls.map(async (tc) => {
               send('tool_call_start', { 
-                toolName: toolCall.function.name,
+                toolName: tc.function.name,
                 toolType: 'function' 
               });
 
-              // Handle function call (you could extend this to support more tools)
-              let toolResult = `Function ${toolCall.function.name} called with arguments: ${toolCall.function.arguments}`;
+              const args = JSON.parse(tc.function.arguments || "{}");
+              
+              // Use existing ToolExecutor class for consistent tool handling
+              const context: ToolExecutionContext = {
+                agentId: agent.id,
+                chatId: chat_id,
+                userId: userId,
+                userContext: {
+                  name: params.session.user?.name,
+                  email: params.session.user?.email,
+                  department: 'Unknown'
+                }
+              };
+
+              const result = await toolExecutor.executeTool(tc.function.name, args, context);
               
               send('tool_result', { 
-                toolName: toolCall.function.name,
-                result: toolResult 
+                toolName: tc.function.name,
+                result: result.success ? result.result : result.error 
               });
 
-              // Submit tool output back to the assistant
-              await openai.beta.threads.runs.submitToolOutputs(thread.id, event.data.id, {
-                tool_outputs: [{
-                  tool_call_id: toolCall.id,
-                  output: toolResult
-                }]
-              });
-            }
-          }
+              return { 
+                tool_call_id: tc.id, 
+                output: JSON.stringify(result.success ? result.result : { error: result.error })
+              };
+            })
+          );
+
+          // CRITICAL: Continue the run with all tool outputs
+          await openai.beta.threads.runs.submitToolOutputs(thread_id!, event.data.id, { 
+            tool_outputs 
+          });
         }
       }
 
@@ -905,22 +990,9 @@ async function handleOpenAIAssistantChat(
         chat_id,
         role: 'assistant',
         content_md: assistantContent,
-        model: `openai-assistant:${agent.openai_assistant_id}`
+        model: `openai-assistant:${agent.openai_assistant_id}`,
+        message_type: 'text'
       };
-
-      // Try to add multimodal fields if they exist
-      try {
-        const { error: columnCheck } = await supabaseAdmin
-          .from('messages')
-          .select('message_type, attachments')
-          .limit(0);
-        
-        if (!columnCheck) {
-          assistantMessageData.message_type = 'text';
-        }
-      } catch (e) {
-        console.log('Multimodal columns not found for assistant message, skipping');
-      }
 
       const { data: aMsg, error: amErr } = await supabaseAdmin
         .from('messages')

@@ -52,9 +52,18 @@ export default function EnhancedSidebar({
   const router = useRouter();
   const toolConfig = getToolConfig();
   const [currentView, setCurrentView] = useState("chat"); // "chat" or "projects"
-  const [isTodayExpanded, setIsTodayExpanded] = useState(true);
+  const [expandedSections, setExpandedSections] = useState({
+    today: true,
+    yesterday: true,
+    thisWeek: true,
+    lastWeek: true,
+    thisMonth: true,
+    lastMonth: true,
+    older: true
+  });
   const [isProjectsExpanded, setIsProjectsExpanded] = useState(true);
   const [projects, setProjects] = useState([]);
+  const [deleteConfirmingChatId, setDeleteConfirmingChatId] = useState(null);
 
   // Load projects data - TODO: replace with real API calls
   useEffect(() => {
@@ -65,31 +74,6 @@ export default function EnhancedSidebar({
       { id: 4, name: "Documentation System", status: "planning" },
     ]);
   }, []);
-
-  // Default assistants if none provided
-  const defaultAssistants = [
-    { 
-      id: 0, 
-      name: "Search", 
-      description: "Specialized search and research assistant",
-      icon: <Search className="w-4 h-4" />,
-      capabilities: ["search"]
-    },
-    { 
-      id: 1, 
-      name: "General", 
-      description: "General purpose AI assistant",
-      icon: <Sparkles className="w-4 h-4" />,
-      capabilities: []
-    },
-    { 
-      id: 2, 
-      name: "Art", 
-      description: "Creative image generation assistant",
-      icon: <Palette className="w-4 h-4" />,
-      capabilities: ["image"]
-    }
-  ];
 
   // Icon registry - maps string names to React components
   const iconRegistry = {
@@ -107,7 +91,8 @@ export default function EnhancedSidebar({
     'file-text': <FileText className="w-4 h-4" />,
     'code': <Code className="w-4 h-4" />,
     'briefcase': <Briefcase className="w-4 h-4" />,
-    'folder': <Folder className="w-4 h-4" />
+    'folder': <Folder className="w-4 h-4" />,
+    'emmie-icon': <img src="/emmie-icon-d.svg" alt="Emmie" className="w-4 h-4" />
   };
 
   // Map department names and icon strings to components
@@ -160,7 +145,7 @@ export default function EnhancedSidebar({
     icon: getAssistantIcon(a)
   }));
 
-  const assistantList = processedAssistants.length > 0 ? processedAssistants : defaultAssistants;
+  const assistantList = processedAssistants;
 
   const handleBackToHub = () => {
     window.location.href = toolConfig.hubUrl || 'https://hub.emtek.au';
@@ -199,6 +184,177 @@ export default function EnhancedSidebar({
 
   const toggleView = (view) => {
     setCurrentView(view);
+  };
+
+  // Time categorization function
+  const categorizeChats = (chats) => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    const thisWeekStart = new Date(today);
+    thisWeekStart.setDate(thisWeekStart.getDate() - 7);
+    
+    const lastWeekStart = new Date(today);
+    lastWeekStart.setDate(lastWeekStart.getDate() - 14);
+    
+    const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    
+    const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+
+    const categories = {
+      today: [],
+      yesterday: [],
+      thisWeek: [],
+      lastWeek: [],
+      thisMonth: [],
+      lastMonth: [],
+      older: []
+    };
+
+    chats.forEach(chat => {
+      // Use updatedAt for recency, fallback to createdAt
+      const chatDate = new Date(chat.updatedAt || chat.createdAt);
+      const chatDateOnly = new Date(chatDate.getFullYear(), chatDate.getMonth(), chatDate.getDate());
+
+      if (chatDateOnly.getTime() === today.getTime()) {
+        categories.today.push(chat);
+      } else if (chatDateOnly.getTime() === yesterday.getTime()) {
+        categories.yesterday.push(chat);
+      } else if (chatDate >= thisWeekStart && chatDate < yesterday) {
+        categories.thisWeek.push(chat);
+      } else if (chatDate >= lastWeekStart && chatDate < thisWeekStart) {
+        categories.lastWeek.push(chat);
+      } else if (chatDate >= thisMonthStart && chatDate < lastWeekStart) {
+        categories.thisMonth.push(chat);
+      } else if (chatDate >= lastMonthStart && chatDate <= lastMonthEnd) {
+        categories.lastMonth.push(chat);
+      } else {
+        categories.older.push(chat);
+      }
+    });
+
+    return categories;
+  };
+
+  const toggleSection = (sectionKey) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [sectionKey]: !prev[sectionKey]
+    }));
+  };
+
+  // Handle delete confirmation flow
+  const handleDeleteClick = (chatId, event) => {
+    event.stopPropagation();
+    setDeleteConfirmingChatId(chatId);
+  };
+
+  const handleConfirmDelete = (chatId, event) => {
+    event.stopPropagation();
+    if (onDeleteChat) {
+      onDeleteChat(chatId);
+    }
+    setDeleteConfirmingChatId(null);
+  };
+
+  const handleCancelDelete = (event) => {
+    event.stopPropagation();
+    setDeleteConfirmingChatId(null);
+  };
+
+  // Reset confirmation state when clicking outside or changing views
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setDeleteConfirmingChatId(null);
+    };
+    
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  const renderChatSection = (title, chats, sectionKey) => {
+    if (chats.length === 0) return null;
+
+    const isExpanded = expandedSections[sectionKey];
+
+    return (
+      <div className="mb-4" key={sectionKey}>
+        <button
+          onClick={() => toggleSection(sectionKey)}
+          className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+        >
+          {isExpanded ? (
+            <ChevronDown className="w-3 h-3" />
+          ) : (
+            <ChevronRight className="w-3 h-3" />
+          )}
+          <span>{title}</span>
+          <span className="text-xs text-gray-400 ml-auto">{chats.length}</span>
+        </button>
+        
+        {isExpanded && (
+          <div className="mt-1 space-y-0.5">
+            {chats.map((chat) => {
+              const isDeleting = deleteConfirmingChatId === chat.id;
+              
+              return (
+                <div
+                  key={chat.id}
+                  className={`w-full px-6 py-2 text-sm rounded-lg transition-all duration-200 truncate group ${
+                    isDeleting 
+                      ? 'bg-red-50 border border-red-200 text-red-900 cursor-default' 
+                      : currentChatId === chat.id 
+                        ? 'bg-gray-200 text-gray-900 cursor-pointer' 
+                        : 'text-gray-600 hover:bg-gray-100 cursor-pointer'
+                  }`}
+                  onClick={() => !isDeleting && onLoadChat && onLoadChat(chat.id)}
+                >
+                  {isDeleting ? (
+                    // Confirmation state
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-red-800">Delete this chat?</span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={(e) => handleConfirmDelete(chat.id, e)}
+                          className="p-1 rounded text-white bg-red-600 hover:bg-red-700 transition-colors"
+                          title="Delete"
+                        >
+                          <Check className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={handleCancelDelete}
+                          className="p-1 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-200 transition-colors"
+                          title="Cancel"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    // Normal state
+                    <div className="flex items-center justify-between">
+                      <span className="truncate flex-1 text-left">{chat.title || 'New Chat'}</span>
+                      {onDeleteChat && (
+                        <button
+                          onClick={(e) => handleDeleteClick(chat.id, e)}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-red-600 transition-all"
+                          title="Delete chat"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
   };
 
   // Chat View Content
@@ -249,72 +405,32 @@ export default function EnhancedSidebar({
         </div>
       </div>
 
-      {/* Explore Assistants */}
-      <div className="px-3 py-2">
-        <h3 className="text-xs font-medium text-gray-600 px-3">
-          Explore Assistants
-        </h3>
-      </div>
-
       {/* Chats Section */}
       <div className="px-3 py-2 flex-1">
         <h3 className="text-xs font-medium text-gray-600 mb-3 px-3">
           Chats
         </h3>
         
-        {/* Today Section */}
-        <div className="mb-4">
-          <button
-            onClick={() => setIsTodayExpanded(!isTodayExpanded)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
-          >
-            {isTodayExpanded ? (
-              <ChevronDown className="w-3 h-3" />
-            ) : (
-              <ChevronRight className="w-3 h-3" />
-            )}
-            <span>Today</span>
-          </button>
-          
-          {isTodayExpanded && (
-            <div className="mt-1 space-y-0.5">
-              {chatHistory.length === 0 ? (
-                <div className="px-6 py-2 text-sm text-gray-400">
-                  No chats yet
-                </div>
-              ) : (
-                chatHistory.map((chat) => (
-                  <div
-                    key={chat.id}
-                    className={`w-full px-6 py-2 text-sm rounded-lg transition-colors truncate group cursor-pointer ${
-                      currentChatId === chat.id 
-                        ? 'bg-gray-200 text-gray-900' 
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                    onClick={() => onLoadChat && onLoadChat(chat.id)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="truncate flex-1 text-left">{chat.title || 'New Chat'}</span>
-                      {onDeleteChat && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (window.confirm('Delete this chat?')) {
-                              onDeleteChat(chat.id);
-                            }
-                          }}
-                          className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-red-600 transition-all"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
+        {chatHistory.length === 0 ? (
+          <div className="px-6 py-2 text-sm text-gray-400">
+            No chats yet
+          </div>
+        ) : (
+          (() => {
+            const categorizedChats = categorizeChats(chatHistory);
+            return (
+              <div>
+                {renderChatSection("Today", categorizedChats.today, "today")}
+                {renderChatSection("Yesterday", categorizedChats.yesterday, "yesterday")}
+                {renderChatSection("This Week", categorizedChats.thisWeek, "thisWeek")}
+                {renderChatSection("Last Week", categorizedChats.lastWeek, "lastWeek")}
+                {renderChatSection("This Month", categorizedChats.thisMonth, "thisMonth")}
+                {renderChatSection("Last Month", categorizedChats.lastMonth, "lastMonth")}
+                {renderChatSection("Older", categorizedChats.older, "older")}
+              </div>
+            );
+          })()
+        )}
       </div>
     </>
   );
@@ -413,15 +529,15 @@ export default function EnhancedSidebar({
         <div className="flex flex-col h-full">
           {/* Header */}
           <div className="p-4 border-b border-gray-200">
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center justify-center relative mb-4">
               <img 
                 src="/emmie-logo.svg" 
                 alt="Emmie" 
-                className="h-6 w-auto" 
+                className="h-10 w-auto max-w-[200px]" 
               />
               <button 
                 onClick={onClose} 
-                className="ml-auto p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-all duration-200"
+                className="absolute right-0 p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-all duration-200"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -484,11 +600,11 @@ export default function EnhancedSidebar({
     <aside className="bg-white border-r border-gray-200 h-screen sticky top-0 flex flex-col w-80">
       {/* Header */}
       <div className="p-4 border-b border-gray-200">
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center justify-center mb-4">
           <img 
             src="/emmie-logo.svg" 
             alt="Emmie" 
-            className="h-6 w-auto cursor-pointer" 
+            className="h-10 w-auto max-w-[200px] cursor-pointer" 
             onClick={handleBackToHub}
           />
         </div>

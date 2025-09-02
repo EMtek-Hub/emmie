@@ -54,7 +54,14 @@ import {
   MoreHorizontal,
   Upload,
   X,
-  FileText
+  FileText,
+  Palette,
+  Grid,
+  Wrench,
+  Users,
+  Laptop,
+  Code,
+  Briefcase
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -210,26 +217,42 @@ export default function ChatPage({ session }) {
   const fetchAgents = async () => {
     try {
       console.log('Fetching agents...');
-      const response = await fetch('/api/agents');
       
+      const response = await fetch('/api/agents');
       console.log('Agents API response status:', response.status);
       
       if (response.ok) {
         const data = await response.json();
         console.log('Agents data received:', data);
-        setAgents(data.agents || []);
-        const defaultAgent = data.agents?.find(agent => agent.department === 'General');
-        if (defaultAgent) {
-          setSelectedAgent(defaultAgent);
-        }
+        const fetchedAgents = data.agents || [];
+        
+        // Sort agents by ID in ascending order
+        const sortedAgents = fetchedAgents.sort((a, b) => {
+          // Convert IDs to strings for consistent comparison
+          const idA = String(a.id || '');
+          const idB = String(b.id || '');
+          return idA.localeCompare(idB);
+        });
+        
+        setAgents(sortedAgents);
+        
+        // Look for Emmie Chat database entry as default (ID: 10000000-0000-0000-0000-000000000001)
+        const emmieAgent = sortedAgents.find(agent => 
+          agent.id === '10000000-0000-0000-0000-000000000001' || agent.name === 'Emmie Chat'
+        );
+        
+        // Set Emmie Chat as default, or first agent if not found
+        setSelectedAgent(emmieAgent || sortedAgents[0] || null);
       } else {
         const errorText = await response.text();
         console.error('Agents API error:', response.status, errorText);
-        setAgents([]); // Fallback to empty array
+        setAgents([]);
+        setSelectedAgent(null);
       }
     } catch (error) {
       console.error('Failed to fetch agents:', error);
-      setAgents([]); // Fallback to empty array
+      setAgents([]);
+      setSelectedAgent(null);
     }
   };
 
@@ -410,54 +433,100 @@ export default function ChatPage({ session }) {
         if (done) break;
         
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              
-              if (data.delta) {
-                assistantContent += data.delta;
+
+        // Process complete SSE messages (double newline)
+        let idx;
+        while ((idx = buffer.indexOf("\n\n")) !== -1) {
+          const raw = buffer.slice(0, idx).trim();
+          buffer = buffer.slice(idx + 2);
+          if (!raw.startsWith("data:")) continue;
+
+          const json = raw.slice(5).trimStart(); // after 'data:'
+          try {
+            const data = JSON.parse(json);
+
+            if (data.delta) {
+              assistantContent += data.delta;
+              setStreamingMessage(assistantContent);
+            }
+            
+            if (data.tool_name) {
+              toolCall = {
+                tool_name: data.tool_name,
+                tool_args: data.tool_args,
+                tool_result: data.tool_result
+              };
+            }
+            
+            if (data.documents) {
+              documents = data.documents;
+              setAvailableDocuments(data.documents);
+            }
+            
+            if (data.tool_call) {
+              // Show tool usage indicator
+              console.log('Tool call:', data.tool_call);
+            }
+            
+            if (data.tool_result) {
+              // Show tool result
+              console.log('Tool result:', data.tool_result);
+            }
+
+            // Handle image generation events
+            if (data.type === 'image_generation_start' || data.event === 'image_generation_start') {
+              console.log('🎨 Image generation started');
+              // You could show a progress indicator here
+            }
+
+            if (data.image_partial) {
+              console.log('🖼️ Partial image received:', data.image_partial);
+              // Handle partial image if needed (progressive loading)
+            }
+
+            if (data.image_completed) {
+              console.log('✅ Image generation completed:', data.image_completed);
+              // Add the image to the assistant content
+              if (data.image_completed.url) {
+                const imageMarkdown = `\n\n![Generated Image](${data.image_completed.url})`;
+                assistantContent += imageMarkdown;
+                setStreamingMessage(assistantContent);
+                console.log('📝 Added image to streaming content');
+              }
+            }
+
+            // Legacy image generation events (fallback)
+            if (data.type === 'image_generated' || data.event === 'image_generated' || data.url) {
+              console.log('🖼️ Image generated (legacy):', data);
+              // Add the image to the assistant content
+              if (data.url) {
+                const imageMarkdown = `\n\n![Generated Image](${data.url})`;
+                assistantContent += imageMarkdown;
                 setStreamingMessage(assistantContent);
               }
-              
-              if (data.tool_name) {
-                toolCall = {
-                  tool_name: data.tool_name,
-                  tool_args: data.tool_args,
-                  tool_result: data.tool_result
-                };
-              }
-              
-              if (data.documents) {
-                documents = data.documents;
-                setAvailableDocuments(data.documents);
-              }
-              
-              if (data.tool_call) {
-                // Show tool usage indicator
-                console.log('Tool call:', data.tool_call);
-              }
-              
-              if (data.tool_result) {
-                // Show tool result
-                console.log('Tool result:', data.tool_result);
-              }
-              
-              if (data.done) {
-                // Update chat ID if we got a real one from the API
-                if (data.chatId && data.chatId !== chatId && !data.chatId.startsWith('temp-')) {
-                  chatId = data.chatId;
-                  setCurrentChatId(data.chatId);
-                  chatSessionIdRef.current = data.chatId;
-                }
-              }
-              
-            } catch (parseError) {
-              console.error('Error parsing SSE data:', parseError);
             }
+
+            if (data.type === 'final_image' || data.event === 'final_image') {
+              console.log('✅ Final image received (legacy):', data);
+              // Add the final image to the assistant content if not already added
+              if (data.url && !assistantContent.includes(data.url)) {
+                const imageMarkdown = `\n\n![Generated Image](${data.url})`;
+                assistantContent += imageMarkdown;
+                setStreamingMessage(assistantContent);
+              }
+            }
+            
+            if (data.done) {
+              // Update chat ID if we got a real one from the API
+              if (data.chatId && data.chatId !== chatId && !data.chatId.startsWith('temp-')) {
+                chatId = data.chatId;
+                setCurrentChatId(data.chatId);
+                chatSessionIdRef.current = data.chatId;
+              }
+            }
+            
+          } catch (parseError) {
+            console.error('Bad SSE JSON:', parseError, raw);
           }
         }
       }
@@ -713,31 +782,13 @@ export default function ChatPage({ session }) {
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Mobile Header */}
-        <div className="lg:hidden app-header">
-          <div className="px-4 py-3 flex items-center justify-between">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="p-2 rounded-xl hover:bg-gray-100 text-emtek-navy transition-colors duration-200"
-            >
-              <MessageSquare className="w-5 h-5" />
-            </button>
-            <div className="flex-1 max-w-[200px]">
-              <img 
-                src="/emmie-logo.svg" 
-                alt="Emmie" 
-                className="w-full h-auto" 
-                style={{ maxHeight: '40px' }}
-              />
-            </div>
-            <button
-              onClick={() => setDocumentSidebarOpen(!documentSidebarOpen)}
-              className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors duration-200"
-            >
-              <Search className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
+        {/* Mobile Menu Button */}
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="lg:hidden fixed top-4 left-4 z-40 p-3 rounded-xl bg-white shadow-lg border border-gray-200 hover:bg-gray-50 text-emtek-navy transition-all duration-200"
+        >
+          <MessageSquare className="w-5 h-5" />
+        </button>
 
         {/* Messages Area with Floating Input */}
         <div className="flex-1 overflow-y-auto bg-white relative">
@@ -1305,6 +1356,75 @@ function LoadingMessage({
 function AgentSelector({ agents, selectedAgent, onAgentChange }) {
   const [isOpen, setIsOpen] = useState(false);
 
+  // Icon registry matching the sidebar
+  const iconRegistry = {
+    'bot': <Bot className="w-4 h-4" />,
+    'search': <Search className="w-4 h-4" />,
+    'palette': <Palette className="w-4 h-4" />,
+    'message-square': <MessageSquare className="w-4 h-4" />,
+    'sparkles': <Sparkles className="w-4 h-4" />,
+    'grid': <Grid className="w-4 h-4" />,
+    'settings': <Settings className="w-4 h-4" />,
+    'user': <User className="w-4 h-4" />,
+    'wrench': <Wrench className="w-4 h-4" />,
+    'users': <Users className="w-4 h-4" />,
+    'laptop': <Laptop className="w-4 h-4" />,
+    'file-text': <FileText className="w-4 h-4" />,
+    'code': <Code className="w-4 h-4" />,
+    'briefcase': <Briefcase className="w-4 h-4" />,
+    'folder': <Folder className="w-4 h-4" />,
+    'emmie-icon': <img src="/emmie-icon-d.svg" alt="Emmie" className="w-4 h-4" />
+  };
+
+  // Get appropriate icon for agent
+  const getAgentIcon = (agent) => {
+    // Handle null/undefined agent
+    if (!agent) {
+      return <img src="/emmie-icon-d.svg" alt="Emmie" className="w-4 h-4" />;
+    }
+    
+    // Check if there's a string icon field from the database
+    if (agent.icon && typeof agent.icon === 'string') {
+      const iconComponent = iconRegistry[agent.icon.toLowerCase()];
+      if (iconComponent) {
+        return iconComponent;
+      }
+    }
+    
+    // If icon is already a React component, return it
+    if (agent.icon && typeof agent.icon === 'object') {
+      return agent.icon;
+    }
+    
+    // Fallback to department-based mapping
+    const deptName = (agent.department || agent.name || '').toLowerCase();
+    
+    if (deptName.includes('drafting') || deptName.includes('design')) {
+      return iconRegistry['grid'];
+    }
+    if (deptName.includes('engineer')) {
+      return iconRegistry['wrench'];
+    }
+    if (deptName.includes('general')) {
+      return iconRegistry['sparkles'];
+    }
+    if (deptName.includes('hr') || deptName.includes('human')) {
+      return iconRegistry['users'];
+    }
+    if (deptName.includes('it') || deptName.includes('support')) {
+      return iconRegistry['laptop'];
+    }
+    if (deptName.includes('search')) {
+      return iconRegistry['search'];
+    }
+    if (deptName.includes('art') || deptName.includes('creative')) {
+      return iconRegistry['palette'];
+    }
+    
+    // Final fallback
+    return iconRegistry['bot'];
+  };
+
   const handleAgentSelect = (agent) => {
     onAgentChange(agent);
     setIsOpen(false);
@@ -1317,8 +1437,8 @@ function AgentSelector({ agents, selectedAgent, onAgentChange }) {
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
       >
-        <Bot className="w-4 h-4" />
-        <span>{selectedAgent?.name || 'General'}</span>
+        {getAgentIcon(selectedAgent)}
+        <span>{selectedAgent?.name || 'Emmie Chat'}</span>
         <div className={`w-3 h-3 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
           <svg viewBox="0 0 12 12" fill="currentColor">
             <path d="M3 4.5L6 7.5L9 4.5"/>
@@ -1342,12 +1462,7 @@ function AgentSelector({ agents, selectedAgent, onAgentChange }) {
                     selectedAgent?.id === agent.id ? 'bg-blue-50 border border-blue-200' : ''
                   }`}
                 >
-                  <div 
-                    className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-medium flex-shrink-0"
-                    style={{ backgroundColor: agent.color }}
-                  >
-                    {agent.name.charAt(0)}
-                  </div>
+                  {getAgentIcon(agent)}
                   <span className="font-medium text-gray-900 text-sm truncate">
                     {agent.name}
                   </span>

@@ -145,8 +145,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         model: DEFAULT_IMAGE_MODEL,
         prompt: prompt,
         size: openaiSize,
-        n: 1,
-        response_format: "b64_json"
+        n: 1
       };
 
       // Add quality if not auto
@@ -203,8 +202,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         model: DEFAULT_IMAGE_MODEL,
         prompt: prompt,
         size: openaiSize,
-        n: 1,
-        response_format: "b64_json"
+        n: 1
       };
 
       // Add quality if not auto
@@ -313,7 +311,7 @@ async function processFinalImage(
   // Save to chat if chatId provided
   if (metadata.chatId) {
     try {
-      await supabaseAdmin
+      const { data: assistantMessage, error: messageError } = await supabaseAdmin
         .from('messages')
         .insert([{
           chat_id: metadata.chatId,
@@ -324,12 +322,23 @@ async function processFinalImage(
           attachments: [{
             type: 'image',
             url: signedUrlData.signedUrl,
-            alt: `AI-generated image: ${metadata.prompt}`
+            alt: `AI-generated image: ${metadata.prompt}`,
+            storage_path: storagePath,
+            file_size: imageBuffer.length,
+            format: metadata.format
           }]
-        }]);
+        }])
+        .select();
+      
+      if (messageError) {
+        console.error('Failed to save generated image to chat:', messageError);
+        throw new Error(`Database insert failed: ${messageError.message}`);
+      } else {
+        console.log('✅ Successfully saved image message to database:', assistantMessage?.[0]?.id);
+      }
     } catch (messageError) {
       console.error('Failed to save generated image to chat:', messageError);
-      // Don't fail the request if we can't save to chat
+      // Don't fail the request if we can't save to chat, but log the error
     }
   }
 

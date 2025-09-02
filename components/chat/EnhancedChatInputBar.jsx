@@ -74,15 +74,67 @@ const SourceChip = ({
 
 // Assistant suggestion item
 const AssistantSuggestionItem = ({ assistant, isSelected, onClick }) => {
+  // Icon registry matching the sidebar
+  const iconRegistry = {
+    'bot': <FiSettings className="w-4 h-4" />,
+    'search': <FiFilter className="w-4 h-4" />,
+    'palette': <FiSettings className="w-4 h-4" />,
+    'message-square': <FiSettings className="w-4 h-4" />,
+    'sparkles': <FiSettings className="w-4 h-4" />,
+    'grid': <FiSettings className="w-4 h-4" />,
+    'settings': <FiSettings className="w-4 h-4" />,
+    'user': <FiSettings className="w-4 h-4" />,
+    'wrench': <FiSettings className="w-4 h-4" />,
+    'users': <FiSettings className="w-4 h-4" />,
+    'laptop': <FiSettings className="w-4 h-4" />,
+    'file-text': <FiSettings className="w-4 h-4" />,
+    'code': <FiSettings className="w-4 h-4" />,
+    'briefcase': <FiSettings className="w-4 h-4" />,
+    'folder': <FiSettings className="w-4 h-4" />,
+    'emmie-icon': <img src="/emmie-icon-d.svg" alt="Emmie" className="w-4 h-4" />
+  };
+
   const getAssistantIcon = (assistant) => {
+    // Check if there's a string icon field from the database
+    if (assistant.icon && typeof assistant.icon === 'string') {
+      const iconComponent = iconRegistry[assistant.icon.toLowerCase()];
+      if (iconComponent) {
+        return iconComponent;
+      }
+    }
+    
+    // If icon is already a React component, return it
+    if (assistant.icon && typeof assistant.icon === 'object') {
+      return assistant.icon;
+    }
+    
+    // Fallback to department-based mapping
     const deptName = (assistant.department || assistant.name || '').toLowerCase();
     
-    if (deptName.includes('drafting')) return <FiSettings className="w-4 h-4" />;
-    if (deptName.includes('engineer')) return <FiSettings className="w-4 h-4" />;
-    if (deptName.includes('hr')) return <FiSettings className="w-4 h-4" />;
-    if (deptName.includes('it')) return <FiSettings className="w-4 h-4" />;
+    if (deptName.includes('drafting') || deptName.includes('design')) {
+      return iconRegistry['grid'];
+    }
+    if (deptName.includes('engineer')) {
+      return iconRegistry['wrench'];
+    }
+    if (deptName.includes('general')) {
+      return iconRegistry['sparkles'];
+    }
+    if (deptName.includes('hr') || deptName.includes('human')) {
+      return iconRegistry['users'];
+    }
+    if (deptName.includes('it') || deptName.includes('support')) {
+      return iconRegistry['laptop'];
+    }
+    if (deptName.includes('search')) {
+      return iconRegistry['search'];
+    }
+    if (deptName.includes('art') || deptName.includes('creative')) {
+      return iconRegistry['palette'];
+    }
     
-    return <FiSettings className="w-4 h-4" />;
+    // Final fallback
+    return iconRegistry['bot'];
   };
 
   return (

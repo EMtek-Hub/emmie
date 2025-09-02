@@ -36,16 +36,16 @@ export default function Sidebar({ user, links = [], onSignOut, onClose, isMobile
       <div className="flex flex-col h-full">
         {/* Header */}
         <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-center relative">
             <img 
               src="/emmie-logo.svg" 
               alt="Emmie" 
-              className="h-6 w-auto" 
+              className="h-10 w-auto max-w-[180px]" 
             />
             {isMobile && onClose && (
               <button 
                 onClick={onClose} 
-                className="ml-auto p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-all duration-200"
+                className="absolute right-0 p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-all duration-200"
               >
                 <X className="w-4 h-4" />
               </button>

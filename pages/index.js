@@ -1,5 +1,5 @@
 import { getToolConfig, getSession } from '../lib/authz';
-import { ExternalLink, Sparkles, Brain, Zap, Shield } from 'lucide-react';
+import { ExternalLink, MessageCircle, Brain, Zap, Shield, Heart, Lightbulb } from 'lucide-react';
 
 export default function HomePage({ toolConfig }) {
   const handleSignIn = () => {
@@ -17,27 +17,35 @@ export default function HomePage({ toolConfig }) {
           <div className="card-body">
             {/* Logo and Tool Name */}
             <div className="mb-8">
-              <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-emtek-navy to-emtek-blue rounded-3xl flex items-center justify-center shadow-glow animate-scale-in">
-                <Sparkles className="w-10 h-10 text-white" />
+              <div className="mx-auto mb-6 animate-scale-in">
+                <img 
+                  src="/emmie-logo.svg" 
+                  alt="Emmie - Your AI Assistant" 
+                  className="h-20 w-auto mx-auto"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    console.log('Emmie logo failed to load');
+                  }}
+                />
               </div>
+              <h1 className="text-headline text-emtek-navy mb-2">
+                Meet Emmie
+              </h1>
+              <p className="text-body font-medium text-emtek-blue">Your Intelligent AI Companion</p>
               <img 
                 src="/emtek-hub-logo.svg" 
-                alt="EMtek Hub" 
-                className="h-12 w-auto mx-auto mb-4 opacity-60"
+                alt="Powered by EMtek Hub" 
+                className="h-8 w-auto mx-auto mt-4 opacity-40"
                 onError={(e) => {
                   e.target.style.display = 'none';
                 }}
               />
-              <h1 className="text-headline text-emtek-navy mb-2">
-                {toolConfig.name || 'Emmie'}
-              </h1>
-              <p className="text-body font-medium">AI-Powered Assistant</p>
             </div>
 
             {/* Description */}
             <div className="mb-8">
-              <p className="text-body leading-relaxed">
-                {toolConfig.description || 'Your intelligent AI assistant for project management, development workflows, and team collaboration.'}
+              <p className="text-body leading-relaxed text-gray-700">
+                {toolConfig.description || 'Hello! I\'m Emmie, your friendly AI assistant designed to help you with projects, creative tasks, problem-solving, and meaningful conversations. Let\'s work together to bring your ideas to life.'}
               </p>
             </div>
 
@@ -45,21 +53,21 @@ export default function HomePage({ toolConfig }) {
             <div className="grid grid-cols-3 gap-4 mb-8">
               <div className="text-center">
                 <div className="w-12 h-12 mx-auto mb-2 bg-emtek-navy/10 rounded-xl flex items-center justify-center">
-                  <Brain className="w-6 h-6 text-emtek-navy" />
+                  <MessageCircle className="w-6 h-6 text-emtek-navy" />
                 </div>
-                <p className="text-caption font-medium">Smart AI</p>
+                <p className="text-caption font-medium">Conversational</p>
               </div>
               <div className="text-center">
                 <div className="w-12 h-12 mx-auto mb-2 bg-emtek-blue/10 rounded-xl flex items-center justify-center">
-                  <Zap className="w-6 h-6 text-emtek-blue" />
+                  <Lightbulb className="w-6 h-6 text-emtek-blue" />
                 </div>
-                <p className="text-caption font-medium">Fast Response</p>
+                <p className="text-caption font-medium">Creative</p>
               </div>
               <div className="text-center">
-                <div className="w-12 h-12 mx-auto mb-2 bg-green-100 rounded-xl flex items-center justify-center">
-                  <Shield className="w-6 h-6 text-green-600" />
+                <div className="w-12 h-12 mx-auto mb-2 bg-emtek-aqua/30 rounded-xl flex items-center justify-center">
+                  <Heart className="w-6 h-6 text-emtek-navy" />
                 </div>
-                <p className="text-caption font-medium">Secure</p>
+                <p className="text-caption font-medium">Helpful</p>
               </div>
             </div>
 
@@ -68,7 +76,7 @@ export default function HomePage({ toolConfig }) {
               onClick={handleSignIn}
               className="btn-primary btn-lg w-full group animate-slide-up"
             >
-              <span>Sign In with EMtek Hub</span>
+              <span>Start Chatting with Emmie</span>
               <ExternalLink className="w-5 h-5 group-hover:translate-x-0.5 transition-transform duration-200" />
             </button>
 
@@ -86,16 +94,16 @@ export default function HomePage({ toolConfig }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
           <div className="card">
             <div className="card-body text-center">
-              <Sparkles className="w-8 h-8 text-emtek-navy mx-auto mb-3" />
-              <h3 className="font-semibold text-emtek-navy mb-2">AI Chat</h3>
-              <p className="text-caption">Intelligent conversations with context-aware responses</p>
+              <MessageCircle className="w-8 h-8 text-emtek-navy mx-auto mb-3" />
+              <h3 className="font-semibold text-emtek-navy mb-2">Natural Conversations</h3>
+              <p className="text-caption">Chat naturally with Emmie about anything - from work to creative ideas</p>
             </div>
           </div>
           <div className="card">
             <div className="card-body text-center">
               <Brain className="w-8 h-8 text-emtek-blue mx-auto mb-3" />
-              <h3 className="font-semibold text-emtek-navy mb-2">Smart Projects</h3>
-              <p className="text-caption">AI-enhanced project management and collaboration</p>
+              <h3 className="font-semibold text-emtek-navy mb-2">Intelligent Support</h3>
+              <p className="text-caption">Get help with projects, problem-solving, and creative collaboration</p>
             </div>
           </div>
         </div>

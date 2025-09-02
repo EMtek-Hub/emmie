@@ -291,21 +291,36 @@ You have access to a document search tool that can find relevant information fro
         }
         
         if ((event as any).type === 'image_generation.completed') {
-          console.log('🎨 Image generation completed');
+          console.log('🎨 Image generation completed:', {
+            size: (event as any).size,
+            quality: (event as any).quality,
+            format: (event as any).output_format,
+            hasB64Json: !!((event as any).b64_json)
+          });
           imageGenerationData = event;
           
           try {
+            console.log('📁 Processing image data...');
             // Save the completed image to storage
             const imageBuffer = Buffer.from((event as any).b64_json, 'base64');
             const format = (event as any).output_format || 'png';
             const contentType = format === 'jpeg' ? 'image/jpeg' : format === 'webp' ? 'image/webp' : 'image/png';
             const extension = format === 'jpeg' ? 'jpg' : format;
             
+            console.log('🔧 Image details:', {
+              bufferSize: imageBuffer.length,
+              format: format,
+              contentType: contentType,
+              extension: extension
+            });
+            
             // Generate unique filename
             const uniqueFilename = `generated-${crypto.randomUUID()}.${extension}`;
             const storagePath = `generated-images/${uniqueFilename}`;
+            console.log('📂 Storage path:', storagePath);
 
             // Upload to Supabase Storage
+            console.log('⬆️ Uploading to Supabase storage...');
             const { error: uploadError } = await supabaseAdmin.storage
               .from('media')
               .upload(storagePath, imageBuffer, {
@@ -314,23 +329,27 @@ You have access to a document search tool that can find relevant information fro
               });
 
             if (uploadError) {
-              console.error('Supabase storage error:', uploadError);
+              console.error('❌ Supabase storage error:', uploadError);
               send({ error: 'Failed to save generated image' });
               break;
             }
+            console.log('✅ Image uploaded successfully');
 
             // Create signed URL
+            console.log('🔗 Creating signed URL...');
             const { data: signedUrlData, error: signedUrlError } = await supabaseAdmin.storage
               .from('media')
               .createSignedUrl(storagePath, 24 * 60 * 60);
 
             if (signedUrlError || !signedUrlData) {
-              console.error('Signed URL error:', signedUrlError);
+              console.error('❌ Signed URL error:', signedUrlError);
               send({ error: 'Failed to create signed URL' });
               break;
             }
+            console.log('✅ Signed URL created:', signedUrlData.signedUrl);
 
             // Send completed image information
+            console.log('📡 Sending image_completed event...');
             send({ 
               image_completed: {
                 url: signedUrlData.signedUrl,
@@ -346,6 +365,52 @@ You have access to a document search tool that can find relevant information fro
             // Update full response to include image reference
             const imageMarkdown = `![Generated image](${signedUrlData.signedUrl})`;
             fullResponse += `\n\n${imageMarkdown}`;
+            console.log('✅ Added image markdown to response. Full response length:', fullResponse.length);
+
+            // Save assistant message with multimodal content
+            console.log('💾 Saving assistant message to database...');
+            try {
+              const { data: assistantMsg, error: saveError } = await supabaseAdmin
+                .from('messages')
+                .insert([{
+                  chat_id,
+                  role: 'assistant',
+                  content_md: fullResponse,
+                  model: 'gpt-5',
+                  message_type: 'multimodal',
+                  attachments: [{
+                    type: 'image',
+                    url: signedUrlData.signedUrl,
+                    alt: 'AI-generated image',
+                    storage_path: storagePath,
+                    file_size: imageBuffer.length,
+                    format: format,
+                    size: (event as any).size,
+                    quality: (event as any).quality
+                  }]
+                }])
+                .select()
+                .single();
+
+              if (saveError) {
+                console.error('❌ Database save error:', saveError);
+                send({ error: 'Failed to save message to database' });
+              } else {
+                console.log('✅ Assistant message saved successfully. Message ID:', assistantMsg?.id);
+                
+                // Send completion event
+                console.log('📡 Sending completion event...');
+                send({ 
+                  done: true, 
+                  chatId: chat_id, 
+                  messageId: assistantMsg?.id,
+                  imageGenerated: true
+                });
+              }
+            } catch (dbError) {
+              console.error('❌ Database error:', dbError);
+              send({ error: 'Database operation failed: ' + dbError.message });
+            }
 
           } catch (imageError) {
             console.error('❌ Image processing error:', imageError);
