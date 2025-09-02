@@ -26,7 +26,7 @@ import { DragDropWrapper, FilePreview } from '../components/chat/DragDropWrapper
 import { DocumentsProvider } from '../components/chat/DocumentsContext-simple';
 import { EnhancedChatInputBar } from '../components/chat/EnhancedChatInputBar';
 import EnhancedSidebar from '../components/chat/EnhancedSidebar';
-import { StopGeneratingButton } from '../components/chat/MessageActions';
+import { StopGeneratingButton, CopyButton } from '../components/chat/MessageActions';
 import DocumentSelectionModal from '../components/chat/DocumentSelectionModal';
 import { 
   ThinkingAnimation, 
@@ -598,13 +598,29 @@ export default function ChatPage({ session }) {
 
   // Handle message regeneration
   const handleRegenerateMessage = async (messageId, model) => {
-    const message = messageHistory.find(m => m.messageId === messageId);
-    if (message && message.parentMessageId) {
-      const parentMessage = messageHistory.find(m => m.messageId === message.parentMessageId);
-      if (parentMessage) {
-        handleSubmit(null, parentMessage.content, parentMessage.messageId);
+    const assistantMessage = messageHistory.find(m => m.messageId === messageId);
+    if (!assistantMessage) return;
+    
+    // Find the last user message before this assistant message
+    const assistantIndex = messages.findIndex(m => m.messageId === messageId);
+    if (assistantIndex === -1) return;
+    
+    // Find the previous user message
+    let lastUserMessage = null;
+    for (let i = assistantIndex - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        lastUserMessage = messages[i];
+        break;
       }
     }
+    
+    if (!lastUserMessage) return;
+    
+    // Remove the assistant message from the state
+    setMessages(prev => prev.filter(m => m.messageId !== messageId));
+    
+    // Re-submit the last user message to generate a new response
+    handleSubmit(null, lastUserMessage.content);
   };
 
   // Handle message switching
@@ -1015,16 +1031,13 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming, 
     return (
       <div className="flex w-full justify-end">
         <div className="max-w-3xl w-full pl-16">
-          <div className="flex items-start gap-3">
+          <div className="flex items-end gap-3">
             <div className="flex-1 min-w-0">
-              <div className="rounded-xl px-4 py-3 bg-orange-50 text-gray-900 ml-auto border border-orange-100">
+              <div className="rounded-xl px-4 py-3 bg-gradient-to-r from-[#aedfe4]/10 to-[#1275bc]/10 text-gray-900 ml-auto border border-[#1275bc]/20">
                 <div className="text-sm leading-relaxed whitespace-pre-wrap">
                   {message.content}
                 </div>
               </div>
-            </div>
-            <div className="w-6 h-6 bg-orange-200 rounded-full flex items-center justify-center text-orange-800 text-xs font-medium flex-shrink-0 mt-1">
-              U
             </div>
           </div>
         </div>
@@ -1089,24 +1102,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming, 
         {/* Action buttons */}
         {(isAssistant && !isStreaming) && (
           <div className="flex items-center gap-3 ml-9 mb-4">
-            <button 
-              onClick={() => onFeedback && onFeedback(message.messageId, 'like')}
-              className="p-1 text-gray-400 hover:text-green-600 transition-colors"
-              title="Like"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L9 7v13m-3-7h-.5A1.5 1.5 0 004 14.5v-3A1.5 1.5 0 015.5 10H7" />
-              </svg>
-            </button>
-            <button 
-              onClick={() => onFeedback && onFeedback(message.messageId, 'dislike')}
-              className="p-1 text-gray-400 hover:text-red-600 transition-colors"
-              title="Dislike"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.905 0-.714.211-1.412.608-2.006L15 17V4m-3 7h.5a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5H11" />
-              </svg>
-            </button>
+            <CopyButton content={message.content} />
             <button 
               onClick={() => onRegenerate && onRegenerate(message.messageId)}
               className="p-1 text-gray-400 hover:text-blue-600 transition-colors"

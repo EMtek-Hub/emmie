@@ -3,8 +3,6 @@ import {
   ChevronLeft, 
   ChevronRight, 
   Copy, 
-  ThumbsUp, 
-  ThumbsDown,
   RefreshCw,
   Edit2,
   Check,
@@ -46,43 +44,6 @@ export function MessageSwitcher({
   );
 }
 
-// Feedback buttons for message rating
-export function MessageFeedback({ onFeedback, messageId }) {
-  const [feedbackGiven, setFeedbackGiven] = useState(null);
-
-  const handleFeedback = (type) => {
-    setFeedbackGiven(type);
-    onFeedback(messageId, type);
-  };
-
-  return (
-    <div className="flex items-center space-x-1">
-      <button
-        onClick={() => handleFeedback('like')}
-        className={`p-1.5 rounded transition-all duration-200 ${
-          feedbackGiven === 'like' 
-            ? 'bg-green-100 text-green-600' 
-            : 'hover:bg-gray-100 text-gray-500'
-        }`}
-        title="Good response"
-      >
-        <ThumbsUp className="w-4 h-4" />
-      </button>
-      
-      <button
-        onClick={() => handleFeedback('dislike')}
-        className={`p-1.5 rounded transition-all duration-200 ${
-          feedbackGiven === 'dislike' 
-            ? 'bg-red-100 text-red-600' 
-            : 'hover:bg-gray-100 text-gray-500'
-        }`}
-        title="Bad response"
-      >
-        <ThumbsDown className="w-4 h-4" />
-      </button>
-    </div>
-  );
-}
 
 // Copy button for message content
 export function CopyButton({ content }) {
@@ -204,14 +165,9 @@ export function MessageActions({
       {isUserMessage ? (
         onEdit && <EditButton onEdit={onEdit} />
       ) : (
-        <>
-          {onFeedback && (
-            <MessageFeedback onFeedback={onFeedback} messageId={messageId} />
-          )}
-          {onRegenerate && (
-            <RegenerateButton onRegenerate={onRegenerate} models={models} />
-          )}
-        </>
+        onRegenerate && (
+          <RegenerateButton onRegenerate={onRegenerate} models={models} />
+        )
       )}
     </div>
   );
