@@ -1,5 +1,6 @@
 import { requireApiPermission } from '../../lib/apiAuth';
 import { supabaseAdmin, EMTEK_ORG_ID, ensureUser } from '../../lib/db';
+import { openai } from '../../lib/ai';
 import { NextApiRequest, NextApiResponse } from 'next';
 import formidable from 'formidable';
 import fs from 'fs';
@@ -94,9 +95,72 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: 'Failed to create signed URL' });
     }
 
-    // Determine file type for frontend
+    // Determine file type for frontend and database
     const isImage = file.mimetype?.startsWith('image/');
     const fileType = isImage ? 'image' : 'document';
+    
+    // Determine chat file type for database
+    let chatFileType = 'PLAIN_TEXT';
+    if (file.mimetype?.startsWith('image/')) {
+      chatFileType = 'IMAGE';
+    } else if (file.mimetype === 'application/pdf') {
+      chatFileType = 'PDF';
+    } else if (file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
+               file.mimetype === 'application/msword') {
+      chatFileType = 'DOCX';
+    } else if (file.mimetype === 'text/csv') {
+      chatFileType = 'CSV';
+    }
+
+    // Upload to OpenAI for documents that benefit from native processing
+    let openaiFileId: string | null = null;
+    const shouldUploadToOpenAI = file.mimetype === 'application/pdf' || 
+                                 file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+                                 file.mimetype === 'application/msword';
+
+    if (shouldUploadToOpenAI) {
+      try {
+        console.log(`Uploading ${file.originalFilename} to OpenAI Files API...`);
+        
+        // Create a readable stream from the file buffer
+        const stream = fs.createReadStream(file.filepath);
+        
+        const openaiFile = await openai.files.create({
+          file: stream,
+          purpose: 'user_data'
+        });
+        
+        openaiFileId = openaiFile.id;
+        console.log(`Successfully uploaded to OpenAI with file ID: ${openaiFileId}`);
+      } catch (openaiError) {
+        console.error('OpenAI file upload error:', openaiError);
+        // Don't fail the entire upload if OpenAI upload fails
+        // The file will still work with Supabase URLs
+      }
+    }
+
+    // Save file metadata to database
+    const { error: dbError } = await supabaseAdmin
+      .from('user_files')
+      .insert({
+        user_id: userId,
+        org_id: EMTEK_ORG_ID,
+        name: file.originalFilename || file.newFilename,
+        original_filename: file.originalFilename || file.newFilename,
+        file_size: file.size,
+        mime_type: file.mimetype || 'application/octet-stream',
+        file_type: fileType,
+        storage_path: storagePath,
+        status: 'indexed',
+        chat_file_type: chatFileType,
+        token_count: Math.ceil((file.size || 0) / 4), // Rough estimate
+        openai_file_id: openaiFileId
+      });
+
+    if (dbError) {
+      console.error('Database save error:', dbError);
+      // Don't fail the upload, but log the error
+    }
 
     return res.status(200).json({
       url: signedUrlData.signedUrl,
@@ -104,7 +168,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       originalName: file.originalFilename || file.newFilename,
       size: file.size,
       mimeType: file.mimetype,
-      storagePath: storagePath
+      storagePath: storagePath,
+      openaiFileId: openaiFileId,
+      success: true
     });
 
   } catch (error) {

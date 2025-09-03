@@ -238,21 +238,75 @@ Always prioritize accuracy, safety, and helpful guidance for EMtek staff.`;
         ? `${systemPrompt}\n\nBackground Context: ${agent.background_instructions}`
         : systemPrompt;
 
-      // 7) Prepare input for Responses API
+      // 7) Check for files with OpenAI file IDs that were attached
+      let attachedOpenAIFiles: any[] = [];
+      if (hasImages && imageUrls.length > 0) {
+        // Query database to find files with OpenAI file IDs for these URLs
+        for (const imageUrl of imageUrls) {
+          try {
+            // Extract storage path from signed URL or match by recent uploads
+            const { data: fileData } = await supabaseAdmin
+              .from('user_files')
+              .select('openai_file_id, mime_type, storage_path')
+              .eq('user_id', userId)
+              .not('openai_file_id', 'is', null)
+              .order('created_at', { ascending: false })
+              .limit(10);
+
+            // Find matching file by checking if the imageUrl contains the storage path
+            const matchingFile = fileData?.find(file => 
+              imageUrl.includes(file.storage_path.split('/').pop() || '')
+            );
+
+            if (matchingFile?.openai_file_id) {
+              attachedOpenAIFiles.push({
+                file_id: matchingFile.openai_file_id,
+                mime_type: matchingFile.mime_type,
+                fallback_url: imageUrl
+              });
+            }
+          } catch (error) {
+            console.error('Error checking for OpenAI file ID:', error);
+          }
+        }
+      }
+
+      // 8) Prepare input for Responses API with hybrid file support
       let input: any;
       
       if (hasImages && imageUrls.length > 0) {
-        // Multi-modal input with images
+        // Build content array with mix of OpenAI files and image URLs
+        const contentItems: any[] = [
+          { type: "input_text", text: userContent }
+        ];
+
+        for (let i = 0; i < imageUrls.length; i++) {
+          const imageUrl = imageUrls[i];
+          const openaiFile = attachedOpenAIFiles.find(f => 
+            imageUrl.includes(f.fallback_url) || f.fallback_url.includes(imageUrl.split('?')[0])
+          );
+
+          if (openaiFile && (openaiFile.mime_type === 'application/pdf' || 
+                            openaiFile.mime_type?.includes('document'))) {
+            // Use OpenAI file input for documents/PDFs for better processing
+            contentItems.push({
+              type: "input_file",
+              file_id: openaiFile.file_id
+            });
+            console.log(`Using OpenAI file input for: ${openaiFile.file_id}`);
+          } else {
+            // Use image URL for images (current approach works well)
+            contentItems.push({
+              type: "input_image",
+              image_url: imageUrl
+            });
+          }
+        }
+
         input = [
           {
             role: "user",
-            content: [
-              { type: "input_text", text: userContent },
-              ...imageUrls.map(url => ({
-                type: "input_image",
-                image_url: url
-              }))
-            ]
+            content: contentItems
           }
         ];
       } else {

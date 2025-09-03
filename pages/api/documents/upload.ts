@@ -73,6 +73,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Unsupported file type. Supported: PDF, DOCX, DOC, TXT, MD' });
     }
 
+    // Upload to OpenAI for native processing (PDFs and Word docs benefit most)
+    let openaiFileId: string | null = null;
+    const shouldUploadToOpenAI = file.mimetype === 'application/pdf' || 
+                                 file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+                                 file.mimetype === 'application/msword';
+
+    if (shouldUploadToOpenAI) {
+      try {
+        console.log(`Uploading agent document ${file.originalFilename} to OpenAI Files API...`);
+        
+        // Create a readable stream from the file
+        const stream = fs.createReadStream(file.filepath);
+        
+        const openaiFile = await openai.files.create({
+          file: stream,
+          purpose: 'user_data'
+        });
+        
+        openaiFileId = openaiFile.id;
+        console.log(`Successfully uploaded agent document to OpenAI with file ID: ${openaiFileId}`);
+      } catch (openaiError) {
+        console.error('OpenAI file upload error for agent document:', openaiError);
+        // Continue without OpenAI file ID - the document will still work with local processing
+      }
+    }
+
     // Create document record
     const { data: document, error: docError } = await supabaseAdmin
       .from('documents')
@@ -84,7 +110,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         file_size: file.size,
         mime_type: file.mimetype,
         status: 'processing',
-        uploaded_by: userId
+        uploaded_by: userId,
+        openai_file_id: openaiFileId
       }])
       .select()
       .single();
