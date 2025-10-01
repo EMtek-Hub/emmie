@@ -1,0 +1,502 @@
+// lib/imageService.ts - Correct gpt-image-1 Implementation using direct fetch
+import crypto from "crypto";
+import { supabaseAdmin } from "./db";
+import { createParser } from "eventsource-parser";
+
+export type PartialImageEvent = { type: "partial_image"; b64_json: string; partial_image_index: number; };
+export type SavedEvent = { type: "saved"; url: string; format: "png"|"jpeg"|"webp"; storagePath: string; fileSize: number; };
+export type ErrorEvent = { type: "error"; error: string };
+export type DoneEvent = { type: "done" };
+export type ImageStreamEvent = PartialImageEvent | SavedEvent | ErrorEvent | DoneEvent;
+
+export type GenerateImageOptions = {
+  prompt: string;
+  model?: "gpt-image-1";
+  format?: "png" | "jpeg" | "webp";
+  size?: "1024x1024" | "1792x1024" | "1024x1792";
+  quality?: "standard" | "high";
+  storageFolder?: string;
+  previousImageUrl?: string; // For multi-turn edits
+};
+
+/**
+ * Image collector for base64 chunks during streaming
+ */
+class ImageCollector {
+  private buffers = new Map<number, string>(); // index -> base64 concat
+  
+  append(index: number, b64Chunk: string) {
+    const prev = this.buffers.get(index) ?? "";
+    this.buffers.set(index, prev + b64Chunk);
+  }
+  
+  finalize(index: number): Uint8Array | undefined {
+    const b64 = this.buffers.get(index);
+    if (!b64) return undefined;
+    const bytes = Buffer.from(b64, "base64");
+    this.buffers.delete(index);
+    return bytes;
+  }
+}
+
+/**
+ * Helper to stream responses from OpenAI Responses API
+ */
+async function streamResponses(body: any, onEvent: (event: string, data: any) => Promise<void> | void) {
+  const res = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+      "Accept": "text/event-stream",
+    },
+    body: JSON.stringify({ ...body, stream: true }),
+  });
+
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`OpenAI stream failed: ${res.status} ${res.statusText}\n${text}`);
+  }
+
+  const parser = createParser({
+    onEvent: (event) => {
+      const ev = event.event || "message";
+      if (event.data === "[DONE]") return;
+      try {
+        const json = JSON.parse(event.data);
+        onEvent(ev, json);
+      } catch {
+        // Non-JSON keep-alive; ignore
+      }
+    }
+  });
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parser.feed(decoder.decode(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/**
+ * Generate an image using gpt-image-1 with Responses API
+ * This uses the multimodal output approach, not function calling
+ */
+export async function generateImage(options: GenerateImageOptions): Promise<string> {
+  const {
+    prompt,
+    model = "gpt-image-1",
+    format = "png",
+    size = "1024x1024",
+    quality = "standard",
+    storageFolder = "generated-images",
+    previousImageUrl
+  } = options;
+
+  try {
+    if (!prompt) {
+      throw new Error("Prompt is required");
+    }
+
+    console.log('🎨 Generating image with gpt-image-1:', {
+      model,
+      format,
+      size,
+      quality,
+      promptLength: prompt.length,
+      isEdit: !!previousImageUrl
+    });
+
+    // Build input content
+    const content: any[] = [
+      { type: "input_text", text: prompt }
+    ];
+
+    // Add previous image for editing
+    if (previousImageUrl) {
+      content.push({
+        type: "input_image",
+        image_url: previousImageUrl
+      });
+    }
+
+    // Create response with image modality
+    const res = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        input: [
+          {
+            role: "user",
+            content
+          }
+        ],
+        modalities: ["text", "image"],
+        image: {
+          size,
+          quality,
+          format
+        }
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`OpenAI API failed: ${res.status} ${res.statusText}\n${text}`);
+    }
+
+    const response = await res.json();
+
+    // Extract image from output
+    let imageB64: string | null = null;
+    
+    for (const item of response.output || []) {
+      if (item.type === 'message' && item.content) {
+        for (const part of item.content) {
+          if (part.type === 'output_image' && part.image_data) {
+            // Extract base64 data
+            const dataUrl = part.image_data;
+            const b64 = dataUrl.split(',')[1] ?? dataUrl;
+            imageB64 = b64;
+            break;
+          }
+        }
+      }
+      if (imageB64) break;
+    }
+
+    if (!imageB64) {
+      throw new Error('No image was generated by the model');
+    }
+
+    // Convert to buffer and upload to storage
+    const buf = Buffer.from(imageB64, "base64");
+    const ext = format === "jpeg" ? "jpg" : format;
+    const contentType = format === "jpeg" ? "image/jpeg" : format === "webp" ? "image/webp" : "image/png";
+    const storagePath = `${storageFolder}/generated-${crypto.randomUUID()}.${ext}`;
+
+    const { error: upErr } = await supabaseAdmin.storage
+      .from("media")
+      .upload(storagePath, buf, { contentType, upsert: false });
+    
+    if (upErr) {
+      throw new Error(`Storage upload failed: ${upErr.message}`);
+    }
+
+    const { data: signed, error: urlErr } = await supabaseAdmin.storage
+      .from("media")
+      .createSignedUrl(storagePath, 24 * 60 * 60);
+    
+    if (urlErr || !signed) {
+      throw new Error(`Signed URL failed: ${urlErr?.message ?? "Unknown"}`);
+    }
+
+    console.log('✅ Image generated and uploaded:', storagePath);
+    return signed.signedUrl;
+
+  } catch (error: any) {
+    console.error('❌ Image generation error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Stream image generation events for progressive rendering
+ * Uses correct event types: response.output_image.delta and response.output_image.completed
+ */
+export async function* streamGeneratedImage(options: GenerateImageOptions): AsyncGenerator<ImageStreamEvent> {
+  const {
+    prompt,
+    model = "gpt-image-1",
+    format = "png",
+    size = "1024x1024",
+    quality = "standard",
+    storageFolder = "generated-images",
+    previousImageUrl
+  } = options;
+
+  try {
+    if (!prompt) {
+      yield { type: "error", error: "Prompt is required" };
+      return;
+    }
+
+    console.log('🌊 Streaming image generation with gpt-image-1:', {
+      model,
+      format,
+      size,
+      quality,
+      promptLength: prompt.length,
+      isEdit: !!previousImageUrl
+    });
+
+    // Build input content
+    const content: any[] = [
+      { type: "input_text", text: prompt }
+    ];
+
+    // Add previous image for editing
+    if (previousImageUrl) {
+      content.push({
+        type: "input_image",
+        image_url: previousImageUrl
+      });
+    }
+
+    const imageCollector = new ImageCollector();
+    let finalImageBytes: Uint8Array | undefined;
+    let partialCount = 0;
+
+    // Use streaming with correct modalities
+    await streamResponses(
+      {
+        model,
+        input: [
+          {
+            role: "user",
+            content
+          }
+        ],
+        modalities: ["text", "image"],
+        image: {
+          size,
+          quality,
+          format
+        }
+      },
+      (_event, data) => {
+        // Handle text deltas (optional captions/notes)
+        if (data.type === 'response.output_text.delta') {
+          // Could yield text updates here if needed
+          process.stdout.write(data.delta || '');
+        }
+        
+        // Handle image deltas (base64 chunks) - THE KEY EVENT
+        else if (data.type === 'response.output_image.delta') {
+          const idx = data.index ?? 0;
+          const b64Chunk = data.delta;
+          
+          if (b64Chunk) {
+            imageCollector.append(idx, b64Chunk);
+            partialCount++;
+          }
+        }
+        
+        // Handle image completion
+        else if (data.type === 'response.output_image.completed') {
+          const idx = data.index ?? 0;
+          const bytes = imageCollector.finalize(idx);
+          if (bytes) {
+            finalImageBytes = bytes;
+            console.log('\n✔ Image completed (index ' + idx + ')');
+          }
+        }
+        
+        // Handle errors
+        else if (data.type === 'response.failed') {
+          console.error('Response failed:', data.error);
+        }
+        
+        // Handle completion
+        else if (data.type === 'response.completed') {
+          console.log('\n✅ Generation finished');
+        }
+      }
+    );
+
+    if (!finalImageBytes) {
+      yield { type: 'error', error: 'No final image received' };
+      return;
+    }
+
+    // Save final image to storage
+    const ext = format === "jpeg" ? "jpg" : format;
+    const contentType = format === "jpeg" ? "image/jpeg" : format === "webp" ? "image/webp" : "image/png";
+    const storagePath = `${storageFolder}/generated-${crypto.randomUUID()}.${ext}`;
+
+    const { error: upErr } = await supabaseAdmin.storage
+      .from("media")
+      .upload(storagePath, finalImageBytes, { contentType, upsert: false });
+    
+    if (upErr) {
+      yield { type: 'error', error: `Storage upload failed: ${upErr.message}` };
+      return;
+    }
+
+    const { data: signed, error: urlErr } = await supabaseAdmin.storage
+      .from("media")
+      .createSignedUrl(storagePath, 24 * 60 * 60);
+    
+    if (urlErr || !signed) {
+      yield { type: 'error', error: `Signed URL failed: ${urlErr?.message ?? "Unknown"}` };
+      return;
+    }
+
+    yield { 
+      type: 'saved', 
+      url: signed.signedUrl, 
+      format,
+      storagePath, 
+      fileSize: finalImageBytes.length 
+    };
+    
+    yield { type: 'done' };
+    
+    console.log('✅ Image streamed and saved:', storagePath);
+
+  } catch (error: any) {
+    console.error('❌ Image streaming error:', error);
+    yield { type: 'error', error: error?.message ?? "Unknown error" };
+  }
+}
+
+/**
+ * SSE helper for piping image generation events to client
+ */
+export async function pipeImageStreamToSSE(
+  res: import("http").ServerResponse,
+  gen: AsyncGenerator<ImageStreamEvent>
+) {
+  const send = (o: ImageStreamEvent) => res.write(`data: ${JSON.stringify(o)}\n\n`);
+  try {
+    for await (const ev of gen) send(ev);
+  } finally {
+    res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+  }
+}
+
+/**
+ * Edit an existing image with gpt-image-1
+ */
+export async function editImage(options: {
+  prompt: string;
+  imageUrl: string;
+  maskUrl?: string;
+  model?: "gpt-image-1";
+  format?: "png" | "jpeg" | "webp";
+  size?: "1024x1024" | "1792x1024" | "1024x1792";
+  storageFolder?: string;
+}): Promise<string> {
+  const {
+    prompt,
+    imageUrl,
+    maskUrl,
+    model = "gpt-image-1",
+    format = "png",
+    size = "1024x1024",
+    storageFolder = "generated-images"
+  } = options;
+
+  try {
+    console.log('🎨 Editing image with gpt-image-1:', {
+      model,
+      format,
+      size,
+      hasMask: !!maskUrl
+    });
+
+    // Build input content with image and optional mask
+    const content: any[] = [
+      { type: "input_text", text: prompt },
+      { type: "input_image", image_url: imageUrl }
+    ];
+
+    if (maskUrl) {
+      content.push({
+        type: "input_image",
+        image_url: maskUrl,
+        mask: true
+      });
+    }
+
+    const res = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        input: [
+          {
+            role: "user",
+            content
+          }
+        ],
+        modalities: ["image"],
+        image: {
+          size,
+          format
+        }
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`OpenAI API failed: ${res.status} ${res.statusText}\n${text}`);
+    }
+
+    const response = await res.json();
+
+    // Extract edited image
+    let imageB64: string | null = null;
+    
+    for (const item of response.output || []) {
+      if (item.type === 'message' && item.content) {
+        for (const part of item.content) {
+          if (part.type === 'output_image' && part.image_data) {
+            const dataUrl = part.image_data;
+            const b64 = dataUrl.split(',')[1] ?? dataUrl;
+            imageB64 = b64;
+            break;
+          }
+        }
+      }
+      if (imageB64) break;
+    }
+
+    if (!imageB64) {
+      throw new Error('No edited image was generated');
+    }
+
+    // Upload to storage
+    const buf = Buffer.from(imageB64, "base64");
+    const ext = format === "jpeg" ? "jpg" : format;
+    const contentType = format === "jpeg" ? "image/jpeg" : format === "webp" ? "image/webp" : "image/png";
+    const storagePath = `${storageFolder}/edited-${crypto.randomUUID()}.${ext}`;
+
+    const { error: upErr } = await supabaseAdmin.storage
+      .from("media")
+      .upload(storagePath, buf, { contentType, upsert: false });
+    
+    if (upErr) {
+      throw new Error(`Storage upload failed: ${upErr.message}`);
+    }
+
+    const { data: signed, error: urlErr } = await supabaseAdmin.storage
+      .from("media")
+      .createSignedUrl(storagePath, 24 * 60 * 60);
+    
+    if (urlErr || !signed) {
+      throw new Error(`Signed URL failed: ${urlErr?.message ?? "Unknown"}`);
+    }
+
+    console.log('✅ Image edited and uploaded:', storagePath);
+    return signed.signedUrl;
+
+  } catch (error: any) {
+    console.error('❌ Image editing error:', error);
+    throw error;
+  }
+}
