@@ -152,6 +152,7 @@ export function EnhancedMessage({
   models = [],
   showThinking = false,
   thinkingContent = '',
+  effortCoerced = null,
   className = ''
 }) {
   const [isEditing, setIsEditing] = useState(false);
@@ -242,6 +243,21 @@ export function EnhancedMessage({
                 isComplete={!isStreaming}
                 isStreaming={isStreaming}
               />
+            )}
+
+            {/* Effort Coerced Notification */}
+            {effortCoerced && !isUser && (
+              <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <Brain className="w-4 h-4 text-blue-600 mt-0.5" />
+                  <div className="flex-1 text-sm">
+                    <p className="font-medium text-blue-900">Reasoning Effort Auto-Upgraded</p>
+                    <p className="text-blue-700 mt-1">
+                      {effortCoerced.reason} - upgraded from <span className="font-mono">{effortCoerced.originalEffort}</span> to <span className="font-mono">{effortCoerced.newEffort}</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
             )}
 
             {/* File attachments */}

@@ -33,7 +33,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(500).json({ error: foldersError.message });
       }
 
-      return res.json({ folders: folders || [] });
+      // Get user files
+      const { data: files, error: filesError } = await supabaseAdmin
+        .from('user_files')
+        .select('*')
+        .eq('org_id', EMTEK_ORG_ID)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (filesError) {
+        console.error('Files fetch error:', filesError);
+        return res.status(500).json({ error: filesError.message });
+      }
+
+      // Group files by folder
+      const foldersWithFiles = (folders || []).map(folder => ({
+        ...folder,
+        files: (files || []).filter(file => file.folder_id === folder.id)
+      }));
+
+      // Get files without a folder (for default "Recent Documents" folder)
+      const unassignedFiles = (files || []).filter(file => !file.folder_id);
+
+      return res.json({ 
+        folders: foldersWithFiles,
+        files: unassignedFiles || []
+      });
     } catch (error) {
       console.error('Unexpected error:', error);
       return res.status(500).json({ error: 'Internal server error' });

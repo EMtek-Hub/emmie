@@ -37,14 +37,15 @@ const DocumentSelectionModal = ({ isOpen, onClose, onSetContext }) => {
 
   // Filter documents based on search
   const filteredDocuments = React.useMemo(() => {
-    const allFiles = folders.flatMap(folder => folder.files || []);
+    const folderFiles = folders.flatMap(folder => folder.files || []);
+    const allFiles = [...folderFiles, ...(files || [])];
     if (!searchQuery) return allFiles;
     
     return allFiles.filter(file => 
       file.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      file.content?.toLowerCase().includes(searchQuery.toLowerCase())
+      file.original_filename?.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  }, [folders, searchQuery]);
+  }, [folders, files, searchQuery]);
 
   // Handle file selection
   const toggleFileSelection = useCallback((file) => {
@@ -213,9 +214,9 @@ const DocumentSelectionModal = ({ isOpen, onClose, onSetContext }) => {
                         <p className="text-sm font-medium text-gray-900 truncate">
                           {file.name}
                         </p>
-                        {file.size && (
+                        {file.file_size && (
                           <p className="text-xs text-gray-500">
-                            {(file.size / 1024).toFixed(1)} KB
+                            {(file.file_size / 1024).toFixed(1)} KB
                           </p>
                         )}
                       </div>
@@ -257,9 +258,9 @@ const DocumentSelectionModal = ({ isOpen, onClose, onSetContext }) => {
             </div>
 
             {/* Upload Area */}
-            <div className="flex-1 p-4">
+            <div className="flex-1 p-4 flex flex-col">
               <div
-                className={`border-2 border-dashed rounded-lg h-full flex flex-col items-center justify-center transition-colors ${
+                className={`border-2 border-dashed rounded-lg flex-1 flex flex-col items-center justify-center transition-colors mb-4 ${
                   isDragOver ? 'border-blue-400 bg-blue-50' : 'border-gray-300'
                 }`}
                 onDragOver={handleDragOver}
@@ -271,32 +272,6 @@ const DocumentSelectionModal = ({ isOpen, onClose, onSetContext }) => {
                   Drag & drop or click to upload files
                 </p>
                 
-                {/* File/URL Toggle */}
-                <div className="flex gap-2 mb-4">
-                  <button
-                    onClick={() => setUploadMode('file')}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      uploadMode === 'file'
-                        ? 'bg-gray-900 text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    <FileIcon className="w-4 h-4" />
-                    File
-                  </button>
-                  <button
-                    onClick={() => setUploadMode('url')}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      uploadMode === 'url'
-                        ? 'bg-gray-900 text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    <LinkIcon className="w-4 h-4" />
-                    URL
-                  </button>
-                </div>
-
                 {/* Upload Input */}
                 {uploadMode === 'file' ? (
                   <button
@@ -326,6 +301,32 @@ const DocumentSelectionModal = ({ isOpen, onClose, onSetContext }) => {
                     </div>
                   </div>
                 )}
+              </div>
+              
+              {/* File/URL Toggle - Now below the drop area */}
+              <div className="flex gap-2 justify-center">
+                <button
+                  onClick={() => setUploadMode('file')}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    uploadMode === 'file'
+                      ? 'bg-gray-900 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <FileIcon className="w-4 h-4" />
+                  File
+                </button>
+                <button
+                  onClick={() => setUploadMode('url')}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    uploadMode === 'url'
+                      ? 'bg-gray-900 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <LinkIcon className="w-4 h-4" />
+                  URL
+                </button>
               </div>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import { requireApiPermission } from '../../../lib/apiAuth';
 import { supabaseAdmin, EMTEK_ORG_ID, ensureUser } from '../../../lib/db';
-import { openai } from '../../../lib/ai';
+import { openai, generateEmbedding, logAIOperation } from '../../../lib/ai';
 import { NextApiRequest, NextApiResponse } from 'next';
 import formidable from 'formidable';
 import fs from 'fs';
@@ -121,8 +121,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: 'Failed to create document record' });
     }
 
+    // Log document upload start
+    logAIOperation('document_upload_start', {
+      userId,
+      agentId,
+      fileName: file.originalFilename || file.newFilename,
+      fileSize: file.size,
+      mimeType: file.mimetype || '',
+      hasOpenAIFile: !!openaiFileId
+    });
+
     // Process the document asynchronously
-    processDocument(document.id, file.filepath, file.mimetype || '');
+    processDocument(document.id, file.filepath, file.mimetype || '', userId);
 
     return res.status(201).json({ 
       document: {
@@ -138,7 +148,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 // Process document in the background
-async function processDocument(documentId: string, filePath: string, mimeType: string) {
+async function processDocument(documentId: string, filePath: string, mimeType: string, userId?: string) {
+  const startTime = Date.now();
+  
   try {
     // Extract text based on file type
     let text = '';
@@ -175,14 +187,10 @@ async function processDocument(documentId: string, filePath: string, mimeType: s
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
       
-      // Generate embedding for the chunk
+      // Generate embedding for the chunk using centralized helper
       let embedding = null;
       try {
-        const embeddingResponse = await openai.embeddings.create({
-          model: 'text-embedding-ada-002',
-          input: chunk,
-        });
-        embedding = embeddingResponse.data[0].embedding;
+        embedding = await generateEmbedding(chunk);
       } catch (embeddingError) {
         console.error('Embedding generation failed for chunk:', embeddingError);
         // Continue without embedding
@@ -218,8 +226,29 @@ async function processDocument(documentId: string, filePath: string, mimeType: s
 
     console.log(`Document ${documentId} processed successfully with ${chunks.length} chunks`);
 
+    // Log successful completion
+    if (userId) {
+      logAIOperation('document_processing_complete', {
+        userId,
+        documentId,
+        chunkCount: chunks.length,
+        duration: Date.now() - startTime,
+        textLength: text.length
+      });
+    }
+
   } catch (error) {
     console.error('Document processing error:', error);
+    
+    // Log error
+    if (userId) {
+      logAIOperation('document_processing_error', {
+        userId,
+        documentId,
+        error: error.message,
+        duration: Date.now() - startTime
+      });
+    }
     
     // Mark document as failed
     await supabaseAdmin

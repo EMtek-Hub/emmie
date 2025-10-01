@@ -34,8 +34,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           color,
           icon,
           is_active,
-          agent_mode,
-          openai_assistant_id,
           created_at,
           documents!agent_id(count)
         `)

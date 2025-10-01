@@ -33,22 +33,22 @@ const ProgressiveImage = ({
       setStatus('generating');
     };
 
-    eventSource.onmessage = (event) => {
+    // Unified processor for events (accepts canonical shape or mapped shapes)
+    const processEvent = (data) => {
       try {
-        const data = JSON.parse(event.data);
-        console.log('📡 Received streaming event:', data.type);
-
-        switch (data.type) {
+        // If data is wrapped in an object that uses different keys, normalize above caller
+        const type = data.type;
+        switch (type) {
           case 'partial_image':
             partialCount.current += 1;
             setProgress(Math.min(partialCount.current * 20, 90)); // Estimate progress
-            
+
             if (data.b64_json) {
               const imageUrl = `data:image/${data.output_format || 'png'};base64,${data.b64_json}`;
               setCurrentImage({
                 url: imageUrl,
                 isPartial: true,
-                index: data.partial_image_index,
+                index: data.partial_image_index ?? data.partial_image_index === 0 ? data.partial_image_index : data.index,
                 size: data.size,
                 quality: data.quality
               });
@@ -58,7 +58,7 @@ const ProgressiveImage = ({
           case 'completed':
             setProgress(100);
             setStatus('completed');
-            
+
             if (data.b64_json) {
               const imageUrl = `data:image/${data.output_format || 'png'};base64,${data.b64_json}`;
               setCurrentImage({
@@ -82,7 +82,7 @@ const ProgressiveImage = ({
               fileSize: data.fileSize,
               usage: data.usage
             });
-            
+
             if (onComplete) {
               onComplete(data);
             }
@@ -92,7 +92,7 @@ const ProgressiveImage = ({
             console.error('❌ Progressive streaming error:', data.error);
             setError(data.error);
             setStatus('error');
-            
+
             if (onError) {
               onError(data.error);
             }
@@ -100,13 +100,25 @@ const ProgressiveImage = ({
 
           case 'done':
             // Clean up connection
-            eventSource.close();
+            try { eventSource.close(); } catch (e) { /* ignore */ }
             break;
 
           default:
-            console.log('📡 Unknown event type:', data.type);
+            console.log('📡 Unknown event type:', type);
             break;
         }
+      } catch (e) {
+        console.error('❌ Error processing event:', e);
+        setError('Failed to process streaming event');
+        setStatus('error');
+      }
+    };
+
+    // Default message handler (for endpoints that send canonical { type: 'partial_image', ... } objects)
+    const defaultMessageHandler = (event) => {
+      try {
+        const parsed = JSON.parse(event.data);
+        processEvent(parsed);
       } catch (parseError) {
         console.error('❌ Error parsing streaming data:', parseError);
         setError('Failed to parse streaming data');
@@ -114,11 +126,81 @@ const ProgressiveImage = ({
       }
     };
 
+    // Named-event handlers for the chat SSE which emits events like 'image_partial', 'image_generated', etc.
+    const handleImagePartial = (evt) => {
+      try {
+        const d = JSON.parse(evt.data);
+        // chat route sends { b64_json, index } — normalize to canonical partial_image shape
+        processEvent({
+          type: 'partial_image',
+          b64_json: d.b64_json,
+          partial_image_index: d.index ?? d.partial_image_index,
+          output_format: d.output_format,
+          size: d.size,
+          quality: d.quality
+        });
+      } catch (e) {
+        console.error('❌ Failed to parse image_partial event:', e);
+      }
+    };
+
+    const handleImageGenerated = (evt) => {
+      try {
+        const d = JSON.parse(evt.data);
+        // chat route sends a saved image as image_generated with a URL; map to saved
+        processEvent({
+          type: 'saved',
+          url: d.url,
+          alt: d.alt,
+          size: d.size,
+          quality: d.quality,
+          format: d.format,
+          fileSize: d.fileSize,
+          usage: d.usage
+        });
+      } catch (e) {
+        console.error('❌ Failed to parse image_generated event:', e);
+      }
+    };
+
+    const handleImageGenerationStart = (evt) => {
+      // Optionally use this to show a specific starting state
+      console.log('📡 image_generation_start', evt.data);
+      setStatus('generating');
+    };
+
+    const handleNamedError = (evt) => {
+      try {
+        const d = JSON.parse(evt.data);
+        processEvent({ type: 'error', error: d.error || d.message || 'Unknown error' });
+      } catch (e) {
+        processEvent({ type: 'error', error: 'Unknown streaming error' });
+      }
+    };
+
+    const handleDone = (evt) => {
+      try {
+        // some endpoints may send done as named event
+        const d = evt?.data ? JSON.parse(evt.data) : {};
+        processEvent({ type: 'done', ...d });
+      } catch (e) {
+        processEvent({ type: 'done' });
+      }
+    };
+
+    // Attach handlers
+    eventSource.onmessage = defaultMessageHandler;
+    eventSource.addEventListener('image_partial', handleImagePartial);
+    eventSource.addEventListener('image_generated', handleImageGenerated);
+    eventSource.addEventListener('image_generation_start', handleImageGenerationStart);
+    eventSource.addEventListener('error', handleNamedError);
+    eventSource.addEventListener('done', handleDone);
+
     eventSource.onerror = (error) => {
       console.error('❌ EventSource error:', error);
       setError('Streaming connection failed');
       setStatus('error');
-      eventSource.close();
+      try { eventSource.close(); } catch (e) {}
       
       if (onError) {
         onError('Streaming connection failed');
@@ -127,8 +209,15 @@ const ProgressiveImage = ({
 
     // Cleanup function
     return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
+      try {
+        eventSource.removeEventListener('image_partial', handleImagePartial);
+        eventSource.removeEventListener('image_generated', handleImageGenerated);
+        eventSource.removeEventListener('image_generation_start', handleImageGenerationStart);
+        eventSource.removeEventListener('error', handleNamedError);
+        eventSource.removeEventListener('done', handleDone);
+        eventSource.close();
+      } catch (e) {
+        // ignore cleanup errors
       }
     };
   }, [streamingUrl, onComplete, onError]);

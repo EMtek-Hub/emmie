@@ -47,7 +47,9 @@ export default function EnhancedSidebar({
   onNewChat,
   onLoadChat,
   onDeleteChat,
-  currentChatId
+  currentChatId,
+  onProjectSelect,
+  onViewModeChange
 }) {
   const router = useRouter();
   const toolConfig = getToolConfig();
@@ -64,16 +66,34 @@ export default function EnhancedSidebar({
   const [isProjectsExpanded, setIsProjectsExpanded] = useState(true);
   const [projects, setProjects] = useState([]);
   const [deleteConfirmingChatId, setDeleteConfirmingChatId] = useState(null);
+  const [loadingProjects, setLoadingProjects] = useState(false);
 
-  // Load projects data - TODO: replace with real API calls
+  // Load real projects data from API
   useEffect(() => {
-    setProjects([
-      { id: 1, name: "EMtek Hub Dashboard", status: "active" },
-      { id: 2, name: "Client Portal", status: "active" },
-      { id: 3, name: "AI Assistant Platform", status: "development" },
-      { id: 4, name: "Documentation System", status: "planning" },
-    ]);
-  }, []);
+    const fetchProjects = async () => {
+      setLoadingProjects(true);
+      try {
+        const response = await fetch('/api/projects');
+        if (response.ok) {
+          const data = await response.json();
+          setProjects(data.projects || []);
+        } else {
+          console.error('Failed to fetch projects:', response.status);
+          setProjects([]);
+        }
+      } catch (error) {
+        console.error('Error fetching projects:', error);
+        setProjects([]);
+      } finally {
+        setLoadingProjects(false);
+      }
+    };
+
+    // Only fetch projects when switching to projects view
+    if (currentView === 'projects') {
+      fetchProjects();
+    }
+  }, [currentView]);
 
   // Icon registry - maps string names to React components
   const iconRegistry = {
@@ -175,15 +195,25 @@ export default function EnhancedSidebar({
   };
 
   const handleNewProject = () => {
-    router.push('/projects/new');
+    // TODO: Open new project modal
+    console.log('New project - TODO: implement modal');
   };
 
-  const handleProjectClick = (projectId) => {
-    router.push(`/projects/${projectId}`);
+  const handleProjectClick = (project) => {
+    // Don't navigate - use callback to show project in main area
+    if (onProjectSelect) {
+      onProjectSelect(project);
+    }
+    if (onViewModeChange) {
+      onViewModeChange('projects');
+    }
   };
 
   const toggleView = (view) => {
     setCurrentView(view);
+    if (onViewModeChange) {
+      onViewModeChange(view);
+    }
   };
 
   // Time categorization function
@@ -436,92 +466,107 @@ export default function EnhancedSidebar({
   );
 
   // Projects View Content
-  const ProjectsViewContent = () => (
-    <>
-      {/* New Project Button */}
-      <div className="px-3 py-3">
-        <button
-          onClick={handleNewProject}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors text-left"
-        >
-          <Plus className="w-4 h-4" />
-          <span className="text-sm">New Project</span>
-        </button>
-      </div>
-
-      {/* My Projects */}
-      <div className="px-3 pb-2">
-        <button className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-          <FolderOpen className="w-4 h-4" />
-          <span>My Projects</span>
-        </button>
-      </div>
-
-      {/* Categories Section */}
-      <div className="px-3 py-2">
-        <h3 className="text-xs font-medium text-gray-600 mb-2 px-3">
-          Categories
-        </h3>
-        <div className="space-y-0.5">
-          <button className="w-full flex items-center gap-3 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-            <Grid className="w-4 h-4" />
-            <span>Active</span>
-          </button>
-          <button className="w-full flex items-center gap-3 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-            <Code className="w-4 h-4" />
-            <span>Development</span>
-          </button>
-          <button className="w-full flex items-center gap-3 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-            <Folder className="w-4 h-4" />
-            <span>Archived</span>
+  const ProjectsViewContent = () => {
+    // Categorize projects by status
+    const activeProjects = projects.filter(p => p.status === 'active');
+    const developmentProjects = projects.filter(p => p.status === 'development' || p.status === 'in_progress');
+    const archivedProjects = projects.filter(p => p.status === 'archived' || p.status === 'completed');
+    
+    return (
+      <>
+        {/* New Project Button */}
+        <div className="px-3 py-3">
+          <button
+            onClick={handleNewProject}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors text-left"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="text-sm">New Project</span>
           </button>
         </div>
-      </div>
 
-      {/* Explore Projects */}
-      <div className="px-3 py-2">
-        <h3 className="text-xs font-medium text-gray-600 px-3">
-          Explore Projects
-        </h3>
-      </div>
-
-      {/* Recent Projects Section */}
-      <div className="px-3 py-2 flex-1">
-        <h3 className="text-xs font-medium text-gray-600 mb-3 px-3">
-          Recent Projects
-        </h3>
-        
-        {/* Active Projects Section */}
-        <div className="mb-4">
-          <button
-            onClick={() => setIsProjectsExpanded(!isProjectsExpanded)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
-          >
-            {isProjectsExpanded ? (
-              <ChevronDown className="w-3 h-3" />
-            ) : (
-              <ChevronRight className="w-3 h-3" />
-            )}
-            <span>Active Projects</span>
-          </button>
-          
-          {isProjectsExpanded && (
-            <div className="mt-1 space-y-0.5">
-              {projects.map((project) => (
-                <button
-                  key={project.id}
-                  onClick={() => handleProjectClick(project.id)}
-                  className="w-full text-left px-6 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors truncate"
-                >
-                  {project.name}
-                </button>
-              ))}
+        {/* My Projects */}
+        <div className="px-3 pb-2">
+          <div className="w-full flex items-center justify-between px-3 py-2.5 text-left text-sm text-gray-700 bg-gray-50 rounded-lg">
+            <div className="flex items-center gap-3">
+              <FolderOpen className="w-4 h-4" />
+              <span>My Projects</span>
             </div>
+            <span className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full font-medium">
+              {projects.length}
+            </span>
+          </div>
+        </div>
+
+
+        {/* Recent Projects Section */}
+        <div className="px-3 py-2 flex-1">
+          <h3 className="text-xs font-medium text-gray-600 mb-3 px-3">
+            Recent Projects
+          </h3>
+          
+          {loadingProjects ? (
+            <div className="px-6 py-4 text-sm text-gray-400 text-center">
+              <div className="flex items-center justify-center gap-2">
+                <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                <span>Loading projects...</span>
+              </div>
+            </div>
+          ) : projects.length === 0 ? (
+            <div className="px-6 py-4 text-sm text-gray-400 text-center">
+              <FolderOpen className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+              <p>No projects yet</p>
+              <button
+                onClick={handleNewProject}
+                className="mt-2 text-xs text-blue-600 hover:text-blue-700"
+              >
+                Create your first project
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Active Projects Section */}
+              {activeProjects.length > 0 && (
+                <div className="mb-4">
+                  <button
+                    onClick={() => setIsProjectsExpanded(!isProjectsExpanded)}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+                  >
+                    {isProjectsExpanded ? (
+                      <ChevronDown className="w-3 h-3" />
+                    ) : (
+                      <ChevronRight className="w-3 h-3" />
+                    )}
+                    <span>Active Projects</span>
+                    <span className="text-xs text-gray-400 ml-auto">{activeProjects.length}</span>
+                  </button>
+                  
+                  {isProjectsExpanded && (
+                    <div className="mt-1 space-y-0.5">
+                      {activeProjects.map((project) => (
+                        <button
+                          key={project.id}
+                          onClick={() => handleProjectClick(project.id)}
+                          className="w-full text-left px-6 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors truncate group"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="truncate">{project.name}</span>
+                            <span className="opacity-0 group-hover:opacity-100 text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full ml-2">
+                              Active
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
-      </div>
-    </>
-  );
+      </>
+    );
+  };
 
   if (isMobile) {
     return (

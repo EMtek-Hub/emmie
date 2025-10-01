@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 
 const DocumentsContext = createContext(undefined);
 
 export const DocumentsProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [folders, setFolders] = useState([]);
+  const [files, setFiles] = useState([]);
   const [currentFolder, setCurrentFolder] = useState(null);
   const [presentingDocument, setPresentingDocument] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -14,9 +15,22 @@ export const DocumentsProvider = ({ children }) => {
   const [currentMessageFiles, setCurrentMessageFiles] = useState([]);
   const [error, setError] = useState(null);
 
-  // Simplified non-failing implementations
+  // Load folders and files from API
   const refreshFolders = useCallback(async () => {
-    // No-op for now - prevents crashes
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/user/folders');
+      if (!response.ok) throw new Error('Failed to fetch folders');
+      const data = await response.json();
+      setFolders(data.folders || []);
+      setFiles(data.files || []);
+    } catch (error) {
+      console.error('Error fetching folders:', error);
+      setError('Failed to load documents. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   const uploadFile = useCallback(async (formData, folderId) => {
@@ -119,8 +133,13 @@ export const DocumentsProvider = ({ children }) => {
     }
   }, [refreshFolders]);
 
+  // Initialize folders on mount
+  useEffect(() => {
+    refreshFolders();
+  }, [refreshFolders]);
+
   const value = {
-    files: [],
+    files,
     folders,
     currentFolder,
     presentingDocument,

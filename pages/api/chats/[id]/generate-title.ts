@@ -1,6 +1,6 @@
 import { requireApiPermission } from '../../../../lib/apiAuth';
 import { supabaseAdmin, EMTEK_ORG_ID, ensureUser } from '../../../../lib/db';
-import { openai, GPT5_MODELS } from '../../../../lib/ai';
+import { openai, RESPONSE_MODELS } from '../../../../lib/ai';
 import { NextApiRequest, NextApiResponse } from 'next';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -59,19 +59,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'Not enough messages to generate title' });
       }
 
-      // Create a conversation summary for title generation
-      const conversationSummary = messages
-        .map(msg => `${msg.role}: ${msg.content_md}`)
-        .join('\n');
+      // Build input array for Responses API
+      const input = [
+        { role: 'system', content: 'You are a title generator. Return a short, descriptive chat title (max 6 words).' },
+        ...messages.slice(-8).map(msg => ({ role: msg.role, content: msg.content_md })) // Keep it short
+      ];
 
       // Generate title using GPT-5 Nano for fast, cost-efficient summary titles
       const titleResponse = await openai.responses.create({
-        model: GPT5_MODELS.NANO, // Use most efficient GPT-5 model for simple title generation
-        instructions: 'Generate a short, descriptive title (2-6 words) summarizing this conversation. Focus on the main topic or key question. Return only the title, no quotes or formatting.',
-        input: `Create a brief title for this conversation:\n\n${conversationSummary}`,
-        reasoning: { effort: 'minimal' as any } // Minimal reasoning for simple title generation
+        model: RESPONSE_MODELS.GPT_5_NANO,
+        input
       });
 
+      // Extract title from plain text response
       const generatedTitle = titleResponse.output_text?.trim() || 'New Chat';
 
       // Update the chat with the generated title

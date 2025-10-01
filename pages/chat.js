@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { requireHubAuth } from '../lib/authz';
 import { renderMarkdown } from '../lib/markdown';
-import { GPT5_MODELS } from '../lib/ai';
+import { RESPONSE_MODELS } from '../lib/ai';
+import ProjectsMainContent from '../components/projects/ProjectsMainContent';
 import { 
   Message, 
   ChatState, 
@@ -28,6 +29,7 @@ import { EnhancedChatInputBar } from '../components/chat/EnhancedChatInputBar';
 import EnhancedSidebar from '../components/chat/EnhancedSidebar';
 import { StopGeneratingButton, CopyButton } from '../components/chat/MessageActions';
 import DocumentSelectionModal from '../components/chat/DocumentSelectionModal';
+import SettingsModal from '../components/chat/SettingsModal';
 import { 
   ThinkingAnimation, 
   TypingIndicator, 
@@ -92,8 +94,13 @@ export default function ChatPage({ session }) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [documentModalOpen, setDocumentModalOpen] = useState(false);
   const [selectedContext, setSelectedContext] = useState([]);
-  const [selectedModel, setSelectedModel] = useState(GPT5_MODELS.MINI); // Default to GPT-5 Mini
+  const [selectedModel, setSelectedModel] = useState(RESPONSE_MODELS.GPT_5_NANO); // Default to GPT-5 Nano (fastest & most cost-efficient)
   const [isCreatingChat, setIsCreatingChat] = useState(false); // Prevent duplicate chat creation
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  
+  // View Mode State - Toggle between Chat and Projects
+  const [viewMode, setViewMode] = useState('chat'); // 'chat' or 'projects'
+  const [selectedProject, setSelectedProject] = useState(null);
   
   // Refs
   const messagesEndRef = useRef(null);
@@ -389,12 +396,9 @@ export default function ChatPage({ session }) {
       if (selectedAgent?.openai_assistant_id) {
         // OpenAI Assistant - use dedicated OpenAI Assistants API
         apiEndpoint = '/api/chat';
-      } else if (Object.values(GPT5_MODELS).includes(selectedModel)) {
-        // GPT-5 model - use GPT-5 Responses API
-        apiEndpoint = '/api/chat-gpt5';
       } else {
-        // Legacy model - use simple chat API
-        apiEndpoint = '/api/chat-simple';
+        // Use unified Responses API endpoint for all non-Assistant agents
+        apiEndpoint = '/api/chat';
       }
       
       const response = await fetch(apiEndpoint, {
@@ -406,7 +410,7 @@ export default function ChatPage({ session }) {
           chatId,
           messages: apiMessages,
           agentId: selectedAgent?.id,
-          selectedContext: Object.values(GPT5_MODELS).includes(selectedModel) ? selectedContext : undefined
+          selectedContext: Object.values(RESPONSE_MODELS).includes(selectedModel) ? selectedContext : undefined
         }),
         signal: controller.signal
       });
@@ -439,11 +443,31 @@ export default function ChatPage({ session }) {
         while ((idx = buffer.indexOf("\n\n")) !== -1) {
           const raw = buffer.slice(0, idx).trim();
           buffer = buffer.slice(idx + 2);
-          if (!raw.startsWith("data:")) continue;
 
-          const json = raw.slice(5).trimStart(); // after 'data:'
+          // Support both "data:"-only SSE messages and messages that include
+          // an "event:" line followed by one or more "data:" lines.
+          const lines = raw.split('\n').map(l => l.trim());
+          let eventName = null;
+          const dataLines = [];
+          for (const line of lines) {
+            if (line.startsWith('event:')) {
+              eventName = line.slice(6).trim();
+            } else if (line.startsWith('data:')) {
+              dataLines.push(line.slice(5));
+            }
+          }
+
+          // If no data lines were found, skip this chunk
+          if (dataLines.length === 0) continue;
+
+          const json = dataLines.join('\n').trim();
           try {
-            const data = JSON.parse(json);
+            let data = JSON.parse(json);
+            // If the server included an explicit SSE "event:" line, but the payload
+            // doesn't contain the event name, set it so downstream handlers can use it.
+            if (eventName && data && typeof data === 'object' && data.event == null) {
+              data.event = eventName;
+            }
 
             if (data.delta) {
               assistantContent += data.delta;
@@ -473,46 +497,118 @@ export default function ChatPage({ session }) {
               console.log('Tool result:', data.tool_result);
             }
 
-            // Handle image generation events
+            // Handle image generation events (supports canonical & legacy shapes)
+            // Keep a transient partial image in the streaming content so previews update in-place.
+            // We use a local partialMarkdown variable to avoid appending multiple previews.
+            if (typeof window.__partialImageMarker === 'undefined') {
+              window.__partialImageMarker = '[[__PARTIAL_IMAGE_MARKER__]]';
+            }
+
+            // Helper to render current streaming content + partial preview
+            const renderStreamingWithPartial = (baseContent, partialMd) => {
+              return (baseContent || '') + (partialMd || '');
+            };
+
+            // Initialize partialMarkdown variable in this scope if not present
+            if (typeof partialMarkdown === 'undefined') {
+              var partialMarkdown = '';
+            }
+
+            // image_generation_start (named or typed)
             if (data.type === 'image_generation_start' || data.event === 'image_generation_start') {
               console.log('🎨 Image generation started');
               // You could show a progress indicator here
             }
 
-            if (data.image_partial) {
-              console.log('🖼️ Partial image received:', data.image_partial);
-              // Handle partial image if needed (progressive loading)
-            }
-
-            if (data.image_completed) {
-              console.log('✅ Image generation completed:', data.image_completed);
-              // Add the image to the assistant content
-              if (data.image_completed.url) {
-                const imageMarkdown = `\n\n![Generated Image](${data.image_completed.url})`;
-                assistantContent += imageMarkdown;
-                setStreamingMessage(assistantContent);
-                console.log('📝 Added image to streaming content');
+            // Canonical partial image event from server: { type: 'partial_image', b64_json: '...' }
+            if (data.type === 'partial_image' || data.event === 'partial_image') {
+              try {
+                const b64 = data.b64_json || data.b64 || data.image_partial?.b64_json;
+                if (b64) {
+                  const dataUrl = `data:image/${data.output_format || 'png'};base64,${b64}`;
+                  partialMarkdown = `\n\n![Preview](${dataUrl})`;
+                  // Update streaming display with the latest preview (replace previous preview)
+                  setStreamingMessage(renderStreamingWithPartial(assistantContent, partialMarkdown));
+                  console.log('🖼️ Partial image updated (canonical): preview updated');
+                }
+              } catch (e) {
+                console.warn('Failed to handle canonical partial_image', e);
               }
             }
 
-            // Legacy image generation events (fallback)
+            // Legacy partial shape (if any): data.image_partial
+            if (data.image_partial && !data.type) {
+              try {
+                const b64 = data.image_partial.b64_json || data.image_partial;
+                if (b64) {
+                  const dataUrl = `data:image/png;base64,${b64}`;
+                  partialMarkdown = `\n\n![Preview](${dataUrl})`;
+                  setStreamingMessage(renderStreamingWithPartial(assistantContent, partialMarkdown));
+                  console.log('🖼️ Partial image updated (legacy image_partial): preview updated');
+                }
+              } catch (e) {
+                console.warn('Failed to handle legacy image_partial', e);
+              }
+            }
+
+            // Canonical saved/final image event: { type: 'saved', url: 'https://...', assistant_text: '...' }
+            if (data.type === 'saved' || data.event === 'saved') {
+              try {
+                // If server provided assistant_text (recommended), append it first
+                if (data.assistant_text) {
+                  assistantContent += `\n\n${data.assistant_text}`;
+                }
+
+                // If URL present, append final image markdown and clear partial preview
+                if (data.url) {
+                  const imageMarkdown = `\n\n![Generated Image](${data.url})`;
+                  // Remove partial preview by resetting partialMarkdown
+                  partialMarkdown = '';
+                  assistantContent += imageMarkdown;
+                  setStreamingMessage(assistantContent);
+                  console.log('✅ Saved image received (canonical):', data.url);
+                }
+              } catch (e) {
+                console.warn('Failed to handle canonical saved event', e);
+              }
+            }
+
+            // Canonical error/done handling that may include final image info
+            if (data.type === 'error' || data.event === 'error') {
+              console.error('Image generation error event:', data);
+              partialMarkdown = '';
+              setStreamingMessage(renderStreamingWithPartial(assistantContent, partialMarkdown));
+            }
+            if (data.type === 'done' || data.event === 'done') {
+              // Clear partial preview on done if still present
+              partialMarkdown = '';
+              setStreamingMessage(renderStreamingWithPartial(assistantContent, partialMarkdown));
+            }
+
+            // Legacy image generation events (fallbacks)
             if (data.type === 'image_generated' || data.event === 'image_generated' || data.url) {
               console.log('🖼️ Image generated (legacy):', data);
               // Add the image to the assistant content
               if (data.url) {
+                // Remove any partial preview
+                partialMarkdown = '';
                 const imageMarkdown = `\n\n![Generated Image](${data.url})`;
                 assistantContent += imageMarkdown;
                 setStreamingMessage(assistantContent);
               }
             }
 
-            if (data.type === 'final_image' || data.event === 'final_image') {
-              console.log('✅ Final image received (legacy):', data);
-              // Add the final image to the assistant content if not already added
-              if (data.url && !assistantContent.includes(data.url)) {
-                const imageMarkdown = `\n\n![Generated Image](${data.url})`;
-                assistantContent += imageMarkdown;
-                setStreamingMessage(assistantContent);
+            if (data.type === 'final_image' || data.event === 'final_image' || data.image_completed) {
+              const final = data.url || data.image_completed?.url;
+              if (final) {
+                // Remove partial preview and append final image
+                partialMarkdown = '';
+                if (!assistantContent.includes(final)) {
+                  const imageMarkdown = `\n\n![Generated Image](${final})`;
+                  assistantContent += imageMarkdown;
+                  setStreamingMessage(assistantContent);
+                }
+                console.log('✅ Final image received (legacy):', final);
               }
             }
             
@@ -523,6 +619,25 @@ export default function ChatPage({ session }) {
                 setCurrentChatId(data.chatId);
                 chatSessionIdRef.current = data.chatId;
               }
+
+              // Refresh chat messages from server to replace the streaming placeholder
+              // and avoid duplicate images/text. We call loadChat asynchronously so we don't
+              // block the SSE processing loop.
+              (async () => {
+                try {
+                  const idToLoad = data.chatId || chatId;
+                  if (idToLoad) {
+                    await loadChat(idToLoad);
+                  }
+                } catch (e) {
+                  console.warn('Failed to refresh chat after streaming done', e);
+                } finally {
+                  // Ensure streaming state is cleared
+                  try { setIsStreaming(false); } catch (e) {}
+                  try { setStreamingMessage(''); } catch (e) {}
+                  try { setIsLoading(false); } catch (e) {}
+                }
+              })();
             }
             
           } catch (parseError) {
@@ -696,9 +811,25 @@ export default function ChatPage({ session }) {
         }
         
         setSidebarOpen(false);
+      } else {
+        if (response.status === 404) {
+          console.error('Chat messages not found, chat may have been deleted');
+          // Refresh chat list to remove stale entries
+          await fetchChatHistory();
+          // Start a new chat if current chat was deleted
+          if (currentChatId === chatId) {
+            startNewChat();
+          }
+          return;
+        }
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
     } catch (error) {
       console.error('Error loading chat:', error);
+      // Handle gracefully - don't break the UI
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        console.error('Network error loading chat - check connection');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -775,6 +906,8 @@ export default function ChatPage({ session }) {
           onLoadChat={loadChat}
           onDeleteChat={deleteChat}
           currentChatId={currentChatId}
+          onProjectSelect={setSelectedProject}
+          onViewModeChange={setViewMode}
         />
       </div>
 
@@ -796,22 +929,55 @@ export default function ChatPage({ session }) {
         onSetContext={handleSetContext}
       />
 
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        agents={agents}
+        onAgentsUpdate={fetchAgents}
+      />
+
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Mobile Menu Button */}
+        {/* Top Bar with Mobile Menu and Settings */}
+        <div className="lg:hidden fixed top-4 left-4 right-4 z-40 flex items-center justify-between">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-3 rounded-xl bg-white shadow-lg border border-gray-200 hover:bg-gray-50 text-emtek-navy transition-all duration-200"
+          >
+            <MessageSquare className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="p-3 rounded-xl bg-white shadow-lg border border-gray-200 hover:bg-gray-50 text-emtek-navy transition-all duration-200"
+            title="Settings"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Desktop Settings Button */}
         <button
-          onClick={() => setSidebarOpen(true)}
-          className="lg:hidden fixed top-4 left-4 z-40 p-3 rounded-xl bg-white shadow-lg border border-gray-200 hover:bg-gray-50 text-emtek-navy transition-all duration-200"
+          onClick={() => setSettingsOpen(true)}
+          className="hidden lg:block fixed top-4 right-4 z-40 p-3 rounded-xl bg-white shadow-lg border border-gray-200 hover:bg-gray-50 text-emtek-navy transition-all duration-200"
+          title="Settings"
         >
-          <MessageSquare className="w-5 h-5" />
+          <Settings className="w-5 h-5" />
         </button>
 
-        {/* Messages Area with Floating Input */}
-        <div className="flex-1 overflow-y-auto bg-white relative">
-          {messageHistory.length === 0 ? (
-            <WelcomeScreen quickPrompts={quickPrompts} onPromptClick={setMessage} />
-          ) : (
-            <div className="max-w-4xl mx-auto px-4 py-8 pb-40">
+        {/* Main Content Area - Conditionally render Chat or Projects */}
+        {viewMode === 'projects' ? (
+          <ProjectsMainContent 
+            selectedProject={selectedProject}
+            onProjectSelect={setSelectedProject}
+            onBack={() => setSelectedProject(null)}
+          />
+        ) : (
+          <div className="flex-1 overflow-y-auto bg-white relative">
+            {messageHistory.length === 0 ? (
+              <WelcomeScreen quickPrompts={quickPrompts} onPromptClick={setMessage} />
+            ) : (
+              <div className="max-w-4xl mx-auto px-4 py-8 pb-40">
               <div className="space-y-6">
                 {messageHistory.map((msg, index) => (
                   <MessageBubble
@@ -870,6 +1036,7 @@ export default function ChatPage({ session }) {
             </div>
           </div>
         </div>
+        )}
       </div>
       </DragDropWrapper>
     </DocumentsProvider>
@@ -1273,10 +1440,13 @@ function ChatInput({
                   onChange={(e) => onModelChange(e.target.value)}
                   className="flex items-center gap-2 px-3 py-1.5 pr-8 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors border-0 bg-transparent cursor-pointer appearance-none"
                 >
-                  <option value="gpt-4o-mini">GPT-4o Mini (Legacy)</option>
-                  <option value={GPT5_MODELS.NANO}>GPT-5 Nano (Fast)</option>
-                  <option value={GPT5_MODELS.MINI}>GPT-5 Mini (Balanced)</option>
-                  <option value={GPT5_MODELS.FULL}>GPT-5 Full (Advanced)</option>
+                  <option value={RESPONSE_MODELS.GPT_5_NANO}>GPT-5 Nano (Fastest)</option>
+                  <option value={RESPONSE_MODELS.GPT_5_MINI}>GPT-5 Mini (Best Balance)</option>
+                  <option value={RESPONSE_MODELS.GPT_4_1}>GPT-4.1 (Smartiest)</option>
+                  <option value={RESPONSE_MODELS.GPT_5}>GPT-5 (Premium)</option>
+                  <option value={RESPONSE_MODELS.GPT_4O}>GPT-4o (Advanced)</option>
+                  <option value={RESPONSE_MODELS.GPT_4O_MINI}>GPT-4o Mini</option>
+                  <option value={RESPONSE_MODELS.GPT_4_TURBO}>GPT-4 Turbo</option>
                 </select>
                 <div className="absolute right-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none">
                   <svg viewBox="0 0 12 12" fill="currentColor">

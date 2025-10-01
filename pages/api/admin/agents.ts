@@ -32,8 +32,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           color,
           icon,
           is_active,
-          agent_mode,
-          openai_assistant_id,
           created_at,
           updated_at
         `)
@@ -52,32 +50,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
 
     } else if (req.method === 'PUT') {
-      // Update agent configuration
-      const { agentId, agent_mode, openai_assistant_id } = req.body;
+      // Update agent configuration (simplified - no agent mode switching)
+      const { agentId, is_active } = req.body;
 
       if (!agentId) {
         return res.status(400).json({ error: 'Agent ID is required' });
-      }
-
-      // Validate agent_mode
-      if (agent_mode && !['emmie', 'openai_assistant'].includes(agent_mode)) {
-        return res.status(400).json({ 
-          error: 'Invalid agent_mode. Must be "emmie" or "openai_assistant"' 
-        });
-      }
-
-      // Validate openai_assistant_id format if provided
-      if (openai_assistant_id && typeof openai_assistant_id !== 'string') {
-        return res.status(400).json({ 
-          error: 'OpenAI Assistant ID must be a string' 
-        });
-      }
-
-      // If switching to openai_assistant mode, ensure assistant_id is provided
-      if (agent_mode === 'openai_assistant' && !openai_assistant_id?.trim()) {
-        return res.status(400).json({ 
-          error: 'OpenAI Assistant ID is required when using OpenAI Assistant mode' 
-        });
       }
 
       // Prepare update data
@@ -85,17 +62,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         updated_at: new Date().toISOString()
       };
 
-      if (agent_mode !== undefined) {
-        updateData.agent_mode = agent_mode;
-      }
-
-      if (openai_assistant_id !== undefined) {
-        updateData.openai_assistant_id = openai_assistant_id?.trim() || null;
-      }
-
-      // If switching back to emmie mode, clear the assistant_id
-      if (agent_mode === 'emmie') {
-        updateData.openai_assistant_id = null;
+      if (is_active !== undefined) {
+        updateData.is_active = Boolean(is_active);
       }
 
       // Update the agent
@@ -112,8 +80,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           color,
           icon,
           is_active,
-          agent_mode,
-          openai_assistant_id,
           updated_at
         `)
         .single();
@@ -133,7 +99,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
 
     } else if (req.method === 'PATCH') {
-      // Bulk update multiple agents
+      // Bulk update multiple agents (simplified)
       const { updates } = req.body;
 
       if (!Array.isArray(updates) || updates.length === 0) {
@@ -144,7 +110,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const errors = [];
 
       for (const update of updates) {
-        const { agentId, agent_mode, openai_assistant_id } = update;
+        const { agentId, is_active } = update;
 
         if (!agentId) {
           errors.push({ agentId, error: 'Agent ID is required' });
@@ -157,30 +123,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             updated_at: new Date().toISOString()
           };
 
-          if (agent_mode !== undefined) {
-            if (!['emmie', 'openai_assistant'].includes(agent_mode)) {
-              errors.push({ agentId, error: 'Invalid agent_mode' });
-              continue;
-            }
-            updateData.agent_mode = agent_mode;
-          }
-
-          if (openai_assistant_id !== undefined) {
-            updateData.openai_assistant_id = openai_assistant_id?.trim() || null;
-          }
-
-          // If switching back to emmie mode, clear the assistant_id
-          if (agent_mode === 'emmie') {
-            updateData.openai_assistant_id = null;
-          }
-
-          // If switching to openai_assistant mode, ensure assistant_id is provided
-          if (agent_mode === 'openai_assistant' && !openai_assistant_id?.trim()) {
-            errors.push({ 
-              agentId, 
-              error: 'OpenAI Assistant ID is required when using OpenAI Assistant mode' 
-            });
-            continue;
+          if (is_active !== undefined) {
+            updateData.is_active = Boolean(is_active);
           }
 
           const { data: updatedAgent, error } = await supabaseAdmin
@@ -188,7 +132,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             .update(updateData)
             .eq('id', agentId)
             .eq('org_id', EMTEK_ORG_ID)
-            .select('id, name, agent_mode, openai_assistant_id')
+            .select('id, name, is_active')
             .single();
 
           if (error) {

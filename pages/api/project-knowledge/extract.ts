@@ -1,12 +1,93 @@
 import { requireApiPermission } from '../../../lib/apiAuth';
 import { supabaseAdmin, EMTEK_ORG_ID } from '../../../lib/db';
-import { openai, GPT5_MODELS, selectGPT5Model } from '../../../lib/ai';
+import { createResponse, logAIOperation } from '../../../lib/ai';
 import { NextApiRequest, NextApiResponse } from 'next';
+
+export const config = { 
+  api: { 
+    bodyParser: { sizeLimit: '1mb' } 
+  } 
+};
+
+// JSON schema for knowledge extraction
+const knowledgeSchema = {
+  type: "object",
+  properties: {
+    decisions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          label: { type: "string" },
+          value: { type: "string" },
+          owner: { type: "string" },
+          date: { type: "string" }
+        },
+        required: ["label", "value"],
+        additionalProperties: false
+      }
+    },
+    risks: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          label: { type: "string" },
+          value: { type: "string" },
+          impact: { type: "string" },
+          mitigation: { type: "string" }
+        },
+        required: ["label", "value"],
+        additionalProperties: false
+      }
+    },
+    deadlines: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          label: { type: "string" },
+          date: { type: "string" },
+          owner: { type: "string" }
+        },
+        required: ["label", "date"],
+        additionalProperties: false
+      }
+    },
+    owners: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          label: { type: "string" },
+          value: { type: "string" }
+        },
+        required: ["label", "value"],
+        additionalProperties: false
+      }
+    },
+    metrics: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          label: { type: "string" },
+          value: { type: "string" },
+          date: { type: "string" }
+        },
+        required: ["label", "value"],
+        additionalProperties: false
+      }
+    }
+  },
+  required: ["decisions", "risks", "deadlines", "owners", "metrics"],
+  additionalProperties: false
+};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const session = await requireApiPermission(req, res, process.env.TOOL_SLUG!);
   if (!session) return;
-
+  
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method not allowed' });
@@ -15,99 +96,200 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { chatId } = req.body;
 
   if (!chatId) {
-    return res.status(400).json({ error: 'Chat ID is required' });
+    return res.status(400).json({ error: 'chatId is required' });
   }
 
   try {
-    // Get last ~30 messages from the chat
-    const { data: msgs, error: msgError } = await supabaseAdmin
-      .from('messages')
-      .select('role, content_md, created_at')
-      .eq('chat_id', chatId)
-      .order('created_at', { ascending: false })
-      .limit(30);
+    const startTime = Date.now();
 
-    if (msgError) {
-      console.error('Message fetch error:', msgError);
-      return res.status(500).json({ error: msgError.message });
+    // Fetch chat with project context
+    const { data: chat, error: chatError } = await supabaseAdmin
+      .from('chats')
+      .select('id, project_id, org_id')
+      .eq('id', chatId)
+      .eq('org_id', EMTEK_ORG_ID)
+      .single();
+
+    if (chatError || !chat || !chat.project_id) {
+      return res.status(404).json({ error: 'Chat not found or not a project chat' });
     }
 
-    if (!msgs || msgs.length === 0) {
-      return res.json({ ok: true, message: 'No messages to extract from' });
+    // Fetch chat messages
+    const { data: messages, error: messagesError } = await supabaseAdmin
+      .from('messages')
+      .select('role, content_md')
+      .eq('chat_id', chatId)
+      .order('created_at', { ascending: true });
+
+    if (messagesError) {
+      console.error('Messages fetch error:', messagesError);
+      return res.status(500).json({ error: 'Failed to fetch messages' });
+    }
+
+    if (!messages || messages.length === 0) {
+      return res.status(400).json({ error: 'No messages in chat' });
     }
 
     // Build conversation context
-    const conversation = msgs
-      .reverse() // Put back in chronological order
-      .map(m => `${m.role.toUpperCase()}: ${m.content_md}`)
-      .join('\n---\n');
+    const conversationText = messages
+      .map(m => `${m.role}: ${m.content_md}`)
+      .join('\n\n');
 
-    const prompt = `
-From the following conversation, extract structured project knowledge in strict JSON format.
+    const instructions = `Extract structured project knowledge from the following conversation. Identify:
+- Decisions: Key choices made about the project
+- Risks: Potential issues or concerns
+- Deadlines: Important dates and milestones
+- Owners: People responsible for tasks or areas
+- Metrics: Measurable indicators or KPIs
 
-Extract:
-- decisions: Array of {label: string, value: string, owner?: string, date?: string}
-- risks: Array of {label: string, value: string, impact?: string, mitigation?: string}
-- deadlines: Array of {label: string, date: string, owner?: string}
-- owners: Array of {label: string, person: string}
-- metrics: Array of {label: string, value: string, as_of_date?: string}
-- notes: Array of strings (≤10 short bullets helpful for future retrieval)
+Only extract information that is explicitly mentioned. If no information exists for a category, return an empty array.`;
 
-Only extract clear, actionable information. If no relevant information is found, return empty arrays.
-Return ONLY valid JSON, no additional text.
+    const input = `Analyze this conversation and extract project knowledge:\n\n${conversationText}`;
 
-Conversation:
-${conversation}
-    `;
-
-    // Use GPT-5 for better structured data extraction
-    const selectedModel = selectGPT5Model({
-      isComplexTask: true, // Structured extraction is complex
-      messageLength: conversation.length
+    logAIOperation('knowledge_extraction_start', {
+      chatId,
+      projectId: chat.project_id,
+      messageCount: messages.length
     });
 
-    const completion = await openai.responses.create({
-      model: selectedModel,
-      instructions: 'You extract structured project knowledge as strict JSON. Return only valid JSON with no additional text or formatting.',
-      input: prompt,
-      reasoning: { effort: 'medium' as any } // Medium reasoning for structured extraction
+    // Use Responses API with structured outputs
+    const response = await createResponse({
+      model: 'gpt-5-mini', // Use mini for fast structured extraction
+      instructions,
+      input,
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'knowledge_extraction',
+          schema: knowledgeSchema
+        }
+      },
+      reasoning: { effort: 'low' }
     });
 
-    // Parse JSON with error handling
-    let extractedData: any = {
-      decisions: [],
-      risks: [],
-      deadlines: [],
-      owners: [],
-      metrics: [],
-      notes: []
-    };
-
+    // Parse the JSON response
+    let extractedKnowledge;
     try {
-      const content = completion.output_text || '{}';
-      extractedData = JSON.parse(content);
+      extractedKnowledge = typeof response === 'string' ? JSON.parse(response) : response;
     } catch (parseError) {
-      console.error('JSON parse error:', parseError);
-      console.error('Raw content:', completion.output_text);
-      // Continue with empty data rather than failing
+      console.error('Failed to parse knowledge extraction:', parseError);
+      return res.status(500).json({ error: 'Failed to parse extracted knowledge' });
     }
 
-    // Hand off to commit endpoint (preserve SSO cookie)
-    if (process.env.APP_BASE_URL) {
-      await fetch(`${process.env.APP_BASE_URL}/api/project-knowledge/commit`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json', 
-          cookie: req.headers.cookie || '' 
-        },
-        body: JSON.stringify({ chatId, ...extractedData })
+    // Count total facts extracted
+    const totalFacts = 
+      (extractedKnowledge.decisions?.length || 0) +
+      (extractedKnowledge.risks?.length || 0) +
+      (extractedKnowledge.deadlines?.length || 0) +
+      (extractedKnowledge.owners?.length || 0) +
+      (extractedKnowledge.metrics?.length || 0);
+
+    logAIOperation('knowledge_extraction_complete', {
+      chatId,
+      projectId: chat.project_id,
+      factsExtracted: totalFacts,
+      duration: Date.now() - startTime
+    });
+
+    // Insert facts into database
+    const factsToInsert: any[] = [];
+
+    // Add decisions
+    extractedKnowledge.decisions?.forEach((decision: any) => {
+      factsToInsert.push({
+        project_id: chat.project_id,
+        org_id: EMTEK_ORG_ID,
+        kind: 'decision',
+        label: decision.label,
+        value: decision.value,
+        owner: decision.owner || null,
+        date: decision.date || null,
+        source_chat_id: chatId
       });
+    });
+
+    // Add risks
+    extractedKnowledge.risks?.forEach((risk: any) => {
+      factsToInsert.push({
+        project_id: chat.project_id,
+        org_id: EMTEK_ORG_ID,
+        kind: 'risk',
+        label: risk.label,
+        value: risk.value,
+        impact: risk.impact || null,
+        mitigation: risk.mitigation || null,
+        source_chat_id: chatId
+      });
+    });
+
+    // Add deadlines
+    extractedKnowledge.deadlines?.forEach((deadline: any) => {
+      factsToInsert.push({
+        project_id: chat.project_id,
+        org_id: EMTEK_ORG_ID,
+        kind: 'deadline',
+        label: deadline.label,
+        date: deadline.date,
+        owner: deadline.owner || null,
+        source_chat_id: chatId
+      });
+    });
+
+    // Add owners
+    extractedKnowledge.owners?.forEach((owner: any) => {
+      factsToInsert.push({
+        project_id: chat.project_id,
+        org_id: EMTEK_ORG_ID,
+        kind: 'owner',
+        label: owner.label,
+        value: owner.value,
+        source_chat_id: chatId
+      });
+    });
+
+    // Add metrics
+    extractedKnowledge.metrics?.forEach((metric: any) => {
+      factsToInsert.push({
+        project_id: chat.project_id,
+        org_id: EMTEK_ORG_ID,
+        kind: 'metric',
+        label: metric.label,
+        value: metric.value,
+        date: metric.date || null,
+        source_chat_id: chatId
+      });
+    });
+
+    // Insert all facts at once
+    if (factsToInsert.length > 0) {
+      const { error: insertError } = await supabaseAdmin
+        .from('project_facts')
+        .insert(factsToInsert);
+
+      if (insertError) {
+        console.error('Facts insert error:', insertError);
+        return res.status(500).json({ error: 'Failed to save extracted facts' });
+      }
     }
 
-    res.json({ ok: true, extracted: extractedData });
+    return res.status(200).json({
+      success: true,
+      factsExtracted: totalFacts,
+      breakdown: {
+        decisions: extractedKnowledge.decisions?.length || 0,
+        risks: extractedKnowledge.risks?.length || 0,
+        deadlines: extractedKnowledge.deadlines?.length || 0,
+        owners: extractedKnowledge.owners?.length || 0,
+        metrics: extractedKnowledge.metrics?.length || 0
+      }
+    });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Knowledge extraction error:', error);
-    return res.status(500).json({ error: 'Failed to extract knowledge' });
+    logAIOperation('knowledge_extraction_error', {
+      chatId: req.body.chatId,
+      error: error.message
+    });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }

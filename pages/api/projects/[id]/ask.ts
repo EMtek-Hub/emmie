@@ -1,6 +1,14 @@
 import { requireApiPermission } from '../../../../lib/apiAuth';
 import { supabaseAdmin, EMTEK_ORG_ID } from '../../../../lib/db';
-import { openai, selectGPT5Model, selectReasoningEffort } from '../../../../lib/ai';
+import { 
+  selectModel, 
+  selectReasoningEffort,
+  initResponseStream,
+  streamResponse,
+  createResponse,
+  logAIOperation,
+  type ReasoningEffort
+} from '../../../../lib/ai';
 import { NextApiRequest, NextApiResponse } from 'next';
 
 export const config = { 
@@ -21,7 +29,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { id: projectId } = req.query;
   const { messages, question } = req.body;
 
-  // Support both formats - new messages array format and legacy question format
+  // Support both formats
   let userMessage: string;
   if (messages && Array.isArray(messages) && messages.length > 0) {
     const lastMessage = messages[messages.length - 1];
@@ -37,7 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // Load project and verify access
+    // Load project
     const { data: project, error: projectError } = await supabaseAdmin
       .from('projects')
       .select('id, org_id, name, description, knowledge_summary_md')
@@ -49,7 +57,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    // Verify user has access to this project
+    // Verify access
     const { data: membership } = await supabaseAdmin
       .from('project_members')
       .select('role')
@@ -61,7 +69,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(403).json({ error: 'Access denied to this project' });
     }
 
-    // Load recent facts grouped by kind
+    // Load recent facts
     const { data: facts, error: factsError } = await supabaseAdmin
       .from('project_facts')
       .select('id, kind, label, value, owner, date, impact, mitigation, created_at')
@@ -87,14 +95,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: notesError.message });
     }
 
-    // TODO: In future, add embeddings search here for RAG
-    const ragSnippets: any[] = []; // Placeholder for RAG snippets
-
-    // Create or find existing chat session
-    let chatSessionId: string;
-    
-    // For now, create a new session for each conversation
-    // In future, you might want to maintain ongoing sessions
+    // Create or find chat session
     const { data: chatSession, error: chatError } = await supabaseAdmin
       .from('chats')
       .insert([{
@@ -111,7 +112,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: 'Failed to create chat session' });
     }
 
-    chatSessionId = chatSession.id;
+    const chatSessionId = chatSession.id;
 
     // Save user message
     const { error: userMessageError } = await supabaseAdmin
@@ -126,21 +127,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.error('User message save error:', userMessageError);
     }
 
-    // SSE setup
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      'Connection': 'keep-alive',
-    });
+    // Initialize SSE
+    const sse = initResponseStream(res);
+    
+    req.on('close', () => sse.end());
+    req.on('end', () => sse.end());
 
-    const send = (event: string, data: any) => {
-      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    };
-
-    let assistantResponse = '';
+    const startTime = Date.now();
 
     try {
-      // Build context for the AI
+      logAIOperation('project_ask_start', {
+        chatId: chatSessionId,
+        userId: session.user.id,
+        messageLength: userMessage.length,
+        isComplexTask: true,
+        endpoint: 'project_ask'
+      });
+
+      // Build context
       const context = `
 # Project: ${project.name}
 
@@ -179,13 +183,11 @@ ${(facts || []).filter(f => f.kind === 'metric').map(f =>
 
 ## Recent Notes
 ${(notes || []).map(n => `- ${n.note_md}`).join('\n') || 'None recorded'}
-
-${ragSnippets.length > 0 ? `## Additional Context\n${ragSnippets.map((s, i) => `[S${i+1}] ${s.title}\n${s.content}`).join('\n\n')}` : ''}
       `;
 
-      // Select appropriate GPT-5 model for project analysis
-      const selectedModel = selectGPT5Model({
-        isComplexTask: true, // Project analysis is complex
+      // Select model for complex project analysis
+      const selectedModel = selectModel({
+        isComplexTask: true,
         messageLength: userMessage.length + context.length
       });
       
@@ -198,52 +200,62 @@ ${ragSnippets.length > 0 ? `## Additional Context\n${ragSnippets.map((s, i) => `
 
 Answer questions accurately based on the provided context. If you reference specific information, be clear about what type of fact it is (decision, risk, deadline, etc.). 
 
-If you reference RAG snippets, cite them as [S1], [S2], etc. 
-
-Always use markdown formatting for clarity and better readability. Be concise but thorough.`;
+Always use markdown formatting for clarity. Be concise but thorough.`;
 
       const input = `Based on the following project information, please answer this question: "${userMessage}"\n\n${context}`;
 
-      // Use GPT-5 Responses API (non-streaming for now, can add streaming later)
-      const response = await openai.responses.create({
+      // Use streamResponse for consistent API usage
+      const assistantResponse = await streamResponse({
         model: selectedModel,
-        instructions: instructions,
-        input: input,
-        reasoning: { effort: reasoningEffort as any }
+        instructions,
+        input,
+        reasoning: { effort: reasoningEffort as ReasoningEffort },
+        sse,
+        store: true,
+        onComplete: async ({ content, responseId }) => {
+          // Save assistant response
+          if (content) {
+            const { error: assistantMessageError } = await supabaseAdmin
+              .from('messages')
+              .insert([{
+                chat_id: chatSessionId,
+                role: 'assistant',
+                content_md: content
+              }]);
+
+            if (assistantMessageError) {
+              console.error('Assistant message save error:', assistantMessageError);
+            }
+          }
+
+          // Log completion
+          logAIOperation('project_ask_complete', {
+            model: selectedModel,
+            chatId: chatSessionId,
+            userId: session.user.id,
+            duration: Date.now() - startTime,
+            responseId
+          });
+        }
       });
 
-      // Get the response text and send it
-      assistantResponse = response.output_text || '';
-      
-      // For now, send the complete response at once
-      // TODO: Implement streaming with Responses API when available
-      send('token', { delta: assistantResponse });
+      sse.end();
 
-      // Save assistant response to database
-      if (assistantResponse) {
-        const { error: assistantMessageError } = await supabaseAdmin
-          .from('messages')
-          .insert([{
-            chat_id: chatSessionId,
-            role: 'assistant',
-            content_md: assistantResponse
-          }]);
-
-        if (assistantMessageError) {
-          console.error('Assistant message save error:', assistantMessageError);
-        }
-      }
-
-      send('done', {});
-      res.end();
-
-    } catch (streamError) {
+    } catch (streamError: any) {
       console.error('Streaming error:', streamError);
-      send('error', { error: 'Failed to generate response' });
-      res.end();
+      
+      logAIOperation('project_ask_error', {
+        chatId: chatSessionId,
+        userId: session.user.id,
+        error: streamError.message,
+        duration: Date.now() - startTime
+      });
+      
+      sse.write({ type: 'error', error: streamError.message || 'Failed to generate response' });
+      sse.end();
     }
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Project ask error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
