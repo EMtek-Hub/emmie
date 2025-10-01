@@ -4,7 +4,6 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { requireApiPermission } from '../../lib/apiAuth';
 import { supabaseAdmin, EMTEK_ORG_ID, ensureUser } from '../../lib/db';
 import {
-  RESPONSE_MODELS,
   buildResponsesInput,
   detectImageGenerationRequest,
   generateEmbedding,
