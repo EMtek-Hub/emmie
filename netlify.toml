@@ -22,32 +22,6 @@
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-# Redirect rules for dynamic API routes
-[[redirects]]
-  from = "/api/chats/:id/messages"
-  to = "/.netlify/functions/___netlify-handler"
-  status = 200
-
-[[redirects]]
-  from = "/api/chats/:id/*"
-  to = "/.netlify/functions/___netlify-handler"
-  status = 200
-
-[[redirects]]
-  from = "/api/chats"
-  to = "/.netlify/functions/___netlify-handler"
-  status = 200
-
-[[redirects]]
-  from = "/api/projects/:id/chats/:chatId/messages"
-  to = "/.netlify/functions/___netlify-handler"
-  status = 200
-
-[[redirects]]
-  from = "/api/projects/:id/chats"
-  to = "/.netlify/functions/___netlify-handler"
-  status = 200
-
 # Environment variables must be set in Netlify dashboard
 # Do not hardcode secrets in this file for security reasons
 # 
