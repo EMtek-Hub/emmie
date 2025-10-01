@@ -15,10 +15,9 @@
   # Ensure npm install runs in production mode
   NPM_FLAGS = "--production=false"
 
-# Configure function timeouts for long-running AI operations
+# Function configuration for Next.js on Netlify
 [functions]
-  # Increase timeout for API functions to handle long GPT-5 streaming
-  timeout = 30
+  node_bundler = "esbuild"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
