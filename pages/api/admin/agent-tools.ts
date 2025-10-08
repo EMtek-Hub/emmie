@@ -60,7 +60,7 @@ async function handleGetAgentTools(req: NextApiRequest, res: NextApiResponse) {
         tool_definitions(
           id,
           name,
-          type,
+          tool_type,
           description,
           function_schema,
           is_system
@@ -133,7 +133,7 @@ async function handleAssignTool(req: NextApiRequest, res: NextApiResponse) {
       })
       .select(`
         *,
-        tool_definitions(name, description, type, function_schema)
+        tool_definitions(name, description, tool_type, function_schema)
       `)
       .single();
 

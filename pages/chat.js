@@ -391,6 +391,30 @@ export default function ChatPage({ session }) {
         content: msg.content
       }));
 
+      // Extract image URLs from uploaded files for vision analysis
+      // Use the signed URLs that are already in the upload response
+      const imageUrls = uploadedFiles
+        .filter(f => f.uploaded && f.type === ChatFileType.IMAGE && f.url)
+        .map(f => f.url);
+
+      // Also check selectedContext for images (from document modal)
+      // These already have URLs stored in the database
+      const contextImageUrls = selectedContext
+        .filter(item => {
+          const name = item.name || item.original_filename || '';
+          const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(name);
+          return isImage && item.storage_path;
+        })
+        .map(item => {
+          // Build public URL from storage path
+          // Format: https://<project>.supabase.co/storage/v1/object/public/media/<path>
+          const path = item.storage_path;
+          return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/media/${path}`;
+        });
+
+      // Combine both sources of images
+      const allImageUrls = [...imageUrls, ...contextImageUrls];
+
       // Choose API endpoint based on agent type and selected model
       let apiEndpoint;
       if (selectedAgent?.openai_assistant_id) {
@@ -410,7 +434,8 @@ export default function ChatPage({ session }) {
           chatId,
           messages: apiMessages,
           agentId: selectedAgent?.id,
-          selectedContext: Object.values(RESPONSE_MODELS).includes(selectedModel) ? selectedContext : undefined
+          imageUrls: allImageUrls,  // Send all image URLs for vision analysis (from both drag-drop and document modal)
+          selectedContext: selectedContext  // Send document context for AI to use
         }),
         signal: controller.signal
       });
@@ -474,6 +499,30 @@ export default function ChatPage({ session }) {
               setStreamingMessage(assistantContent);
             }
             
+            // Handle function result events from backend
+            if (data.type === 'function_result') {
+              console.log('🔧 Function result received:', {
+                name: data.name,
+                status: data.status,
+                call_id: data.call_id
+              });
+              
+              // Add tool result to assistant content
+              if (data.result) {
+                const toolResultText = `\n\n**Tool: ${data.name}**\n${data.result}\n\n`;
+                assistantContent += toolResultText;
+                setStreamingMessage(assistantContent);
+              }
+              
+              // Store tool call for metadata
+              toolCall = {
+                tool_name: data.name,
+                call_id: data.call_id,
+                status: data.status,
+                tool_result: data.result
+              };
+            }
+            
             if (data.tool_name) {
               toolCall = {
                 tool_name: data.tool_name,
@@ -489,12 +538,12 @@ export default function ChatPage({ session }) {
             
             if (data.tool_call) {
               // Show tool usage indicator
-              console.log('Tool call:', data.tool_call);
+              console.log('🔧 Tool call initiated:', data.tool_call);
             }
             
             if (data.tool_result) {
               // Show tool result
-              console.log('Tool result:', data.tool_result);
+              console.log('✅ Tool result:', data.tool_result);
             }
 
             // Handle image generation events (supports canonical & legacy shapes)
@@ -836,6 +885,15 @@ export default function ChatPage({ session }) {
   };
 
   const deleteChat = async (chatId) => {
+    // If deleting current chat, immediately clear UI and return to welcome
+    if (currentChatId === chatId) {
+      startNewChat();
+    }
+    
+    // Update chat history immediately (optimistic update)
+    setChatHistory(prev => prev.filter(chat => chat.id !== chatId));
+    
+    // Perform actual deletion in background
     try {
       const response = await fetch('/api/chats', {
         method: 'DELETE',
@@ -843,14 +901,14 @@ export default function ChatPage({ session }) {
         body: JSON.stringify({ chatId })
       });
       
-      if (response.ok) {
-        if (currentChatId === chatId) {
-          startNewChat();
-        }
+      if (!response.ok) {
+        // If deletion failed, refresh chat history to revert optimistic update
         fetchChatHistory();
       }
     } catch (error) {
       console.error('Error deleting chat:', error);
+      // Revert optimistic update on error
+      fetchChatHistory();
     }
   };
 
@@ -956,14 +1014,6 @@ export default function ChatPage({ session }) {
           </button>
         </div>
 
-        {/* Desktop Settings Button */}
-        <button
-          onClick={() => setSettingsOpen(true)}
-          className="hidden lg:block fixed top-4 right-4 z-40 p-3 rounded-xl bg-white shadow-lg border border-gray-200 hover:bg-gray-50 text-emtek-navy transition-all duration-200"
-          title="Settings"
-        >
-          <Settings className="w-5 h-5" />
-        </button>
 
         {/* Main Content Area - Conditionally render Chat or Projects */}
         {viewMode === 'projects' ? (
@@ -1025,11 +1075,13 @@ export default function ChatPage({ session }) {
                 isLoading={isLoading}
                 onFileUpload={handleFileUpload}
                 uploadedFiles={uploadedFiles}
+                setUploadedFiles={setUploadedFiles}
                 selectedAgent={selectedAgent}
                 onAgentChange={setSelectedAgent}
                 agents={agents}
                 onOpenDocumentModal={() => setDocumentModalOpen(true)}
                 selectedContext={selectedContext}
+                setSelectedContext={setSelectedContext}
                 selectedModel={selectedModel}
                 onModelChange={setSelectedModel}
               />
@@ -1327,12 +1379,14 @@ function ChatInput({
   onSubmit, 
   isLoading, 
   onFileUpload, 
-  uploadedFiles, 
+  uploadedFiles,
+  setUploadedFiles,
   selectedAgent, 
   onAgentChange,
   agents,
   onOpenDocumentModal, 
   selectedContext,
+  setSelectedContext,
   selectedModel,
   onModelChange 
 }) {
@@ -1351,6 +1405,28 @@ function ChatInput({
       handleSubmit(e);
     }
   };
+
+  // Handle paste for images (Ctrl+V)
+  const handlePaste = useCallback(async (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const imageFiles = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.indexOf('image') !== -1) {
+        const file = item.getAsFile();
+        if (file) {
+          imageFiles.push(file);
+        }
+      }
+    }
+
+    if (imageFiles.length > 0) {
+      e.preventDefault(); // Prevent pasting image as text
+      await onFileUpload(imageFiles);
+    }
+  }, [onFileUpload]);
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -1374,6 +1450,7 @@ function ChatInput({
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder="Talk to Emmie"
             className="w-full resize-none bg-transparent border-0 outline-none placeholder-gray-400 text-gray-900 text-sm leading-6"
             style={{ minHeight: '60px', maxHeight: '200px' }}
@@ -1388,9 +1465,19 @@ function ChatInput({
                 <span className="font-medium">Selected Context ({selectedContext.length} items)</span>
               </div>
               {selectedContext.map((item) => (
-                <div key={item.id} className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-md px-2 py-1 text-xs">
+                <div key={item.id} className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-md px-2 py-1 text-xs group">
                   <FileText className="w-3 h-3 text-blue-600" />
                   <span className="truncate max-w-32 text-blue-800">{item.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedContext(prev => prev.filter(ctx => ctx.id !== item.id));
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-blue-100 rounded text-blue-400 hover:text-blue-600 transition-all"
+                    title="Remove from context"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
                 </div>
               ))}
             </div>
@@ -1400,12 +1487,24 @@ function ChatInput({
           {uploadedFiles.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100">
               {uploadedFiles.map((file) => (
-                <div key={file.id} className="flex items-center gap-2 bg-gray-50 rounded-md px-2 py-1 text-xs">
+                <div key={file.id} className="flex items-center gap-2 bg-gray-50 rounded-md px-2 py-1 text-xs group">
                   <FileText className="w-3 h-3" />
                   <span className="truncate max-w-32">{file.name}</span>
                   {file.uploading && <span className="text-gray-500">...</span>}
                   {file.error && <span className="text-red-500">✕</span>}
                   {file.uploaded && <span className="text-green-500">✓</span>}
+                  {!file.uploading && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUploadedFiles(prev => prev.filter(f => f.id !== file.id));
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-600 transition-all"
+                      title="Remove file"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -1442,11 +1541,7 @@ function ChatInput({
                 >
                   <option value={RESPONSE_MODELS.GPT_5_NANO}>GPT-5 Nano (Fastest)</option>
                   <option value={RESPONSE_MODELS.GPT_5_MINI}>GPT-5 Mini (Best Balance)</option>
-                  <option value={RESPONSE_MODELS.GPT_4_1}>GPT-4.1 (Smartiest)</option>
                   <option value={RESPONSE_MODELS.GPT_5}>GPT-5 (Premium)</option>
-                  <option value={RESPONSE_MODELS.GPT_4O}>GPT-4o (Advanced)</option>
-                  <option value={RESPONSE_MODELS.GPT_4O_MINI}>GPT-4o Mini</option>
-                  <option value={RESPONSE_MODELS.GPT_4_TURBO}>GPT-4 Turbo</option>
                 </select>
                 <div className="absolute right-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none">
                   <svg viewBox="0 0 12 12" fill="currentColor">

@@ -6,39 +6,97 @@ import {
   CheckCircle,
   XCircle,
   Save,
-  X
+  X,
+  ChevronDown,
+  ChevronUp,
+  Edit
 } from 'lucide-react';
 
 export function AgentConfigurationCard({ agent, onUpdate, isUpdating = false }) {
   const [isActive, setIsActive] = useState(agent.is_active);
+  const [description, setDescription] = useState(agent.description || '');
+  const [department, setDepartment] = useState(agent.department || '');
+  const [systemPrompt, setSystemPrompt] = useState(agent.system_prompt || '');
+  const [backgroundInstructions, setBackgroundInstructions] = useState(agent.background_instructions || '');
   const [hasChanges, setHasChanges] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const handleActiveToggle = () => {
     const newActive = !isActive;
     setIsActive(newActive);
-    setHasChanges(newActive !== agent.is_active);
+    checkForChanges({ is_active: newActive });
+  };
+
+  const handleFieldChange = (field, value) => {
+    switch(field) {
+      case 'description':
+        setDescription(value);
+        break;
+      case 'department':
+        setDepartment(value);
+        break;
+      case 'system_prompt':
+        setSystemPrompt(value);
+        break;
+      case 'background_instructions':
+        setBackgroundInstructions(value);
+        break;
+    }
+    checkForChanges({ [field]: value });
+  };
+
+  const checkForChanges = (updates = {}) => {
+    const currentValues = {
+      is_active: isActive,
+      description,
+      department,
+      system_prompt: systemPrompt,
+      background_instructions: backgroundInstructions,
+      ...updates
+    };
+
+    const hasAnyChanges = 
+      currentValues.is_active !== agent.is_active ||
+      currentValues.description !== (agent.description || '') ||
+      currentValues.department !== (agent.department || '') ||
+      currentValues.system_prompt !== (agent.system_prompt || '') ||
+      currentValues.background_instructions !== (agent.background_instructions || '');
+
+    setHasChanges(hasAnyChanges);
   };
 
   const handleSave = async () => {
     try {
-      await onUpdate(agent.id, {
-        is_active: isActive
-      });
+      const updates = {
+        is_active: isActive,
+        description,
+        department,
+        system_prompt: systemPrompt,
+        background_instructions: backgroundInstructions
+      };
+      await onUpdate(agent.id, updates);
       setHasChanges(false);
     } catch (error) {
       // Reset to original values on error
-      setIsActive(agent.is_active);
-      setHasChanges(false);
+      resetFields();
     }
   };
 
-  const handleCancel = () => {
+  const resetFields = () => {
     setIsActive(agent.is_active);
+    setDescription(agent.description || '');
+    setDepartment(agent.department || '');
+    setSystemPrompt(agent.system_prompt || '');
+    setBackgroundInstructions(agent.background_instructions || '');
     setHasChanges(false);
   };
 
+  const handleCancel = () => {
+    resetFields();
+  };
+
   const canSave = () => {
-    return hasChanges;
+    return hasChanges && department.trim() && systemPrompt.trim();
   };
 
   return (
@@ -88,10 +146,20 @@ export function AgentConfigurationCard({ agent, onUpdate, isUpdating = false }) 
       {/* Configuration Section */}
       <div className="space-y-4">
         <div className="border-t border-gray-100 pt-4">
-          <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
-            <Settings className="w-4 h-4" />
-            Configuration
-          </h4>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+              <Settings className="w-4 h-4" />
+              Configuration
+            </h4>
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
+            >
+              <Edit className="w-4 h-4" />
+              {isExpanded ? 'Hide Details' : 'Edit Details'}
+              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+          </div>
 
           {/* Agent Status Toggle */}
           <div className="space-y-3">
@@ -120,6 +188,73 @@ export function AgentConfigurationCard({ agent, onUpdate, isUpdating = false }) 
               </button>
             </div>
           </div>
+
+          {/* Expanded Edit Section */}
+          {isExpanded && (
+            <div className="mt-4 space-y-4 border-t border-gray-100 pt-4">
+              {/* Department */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Department
+                </label>
+                <input
+                  type="text"
+                  value={department}
+                  onChange={(e) => handleFieldChange('department', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  placeholder="e.g., IT, HR, Engineering"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Description
+                </label>
+                <input
+                  type="text"
+                  value={description}
+                  onChange={(e) => handleFieldChange('description', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  placeholder="Brief description of the assistant's role"
+                />
+              </div>
+
+              {/* System Prompt */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  System Prompt *
+                </label>
+                <textarea
+                  value={systemPrompt}
+                  onChange={(e) => handleFieldChange('system_prompt', e.target.value)}
+                  rows={4}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm font-mono"
+                  placeholder="Define the assistant's role and behavior..."
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  This prompt defines how the AI assistant behaves and responds to users.
+                </p>
+              </div>
+
+              {/* Background Instructions */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Background Instructions
+                </label>
+                <textarea
+                  value={backgroundInstructions}
+                  onChange={(e) => handleFieldChange('background_instructions', e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm font-mono"
+                  placeholder="Additional context or instructions (optional)"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Additional context that helps the assistant understand its role better.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}

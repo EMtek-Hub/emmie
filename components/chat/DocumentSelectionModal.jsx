@@ -29,10 +29,10 @@ const DocumentSelectionModal = ({ isOpen, onClose, onSetContext }) => {
     createFileFromLink
   } = useDocumentsContext();
 
-  // Calculate total token count (approximate - 4 chars per token)
+  // Calculate total token count from database token_count field
   const totalTokens = selectedItems.reduce((total, item) => {
-    const contentLength = item.content?.length || item.name?.length || 0;
-    return total + Math.ceil(contentLength / 4);
+    // Use actual token_count from database if available
+    return total + (item.token_count || 0);
   }, 0);
 
   // Filter documents based on search

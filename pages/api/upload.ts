@@ -6,6 +6,8 @@ import formidable from 'formidable';
 import fs from 'fs';
 import crypto from 'crypto';
 import path from 'path';
+import pdfParse from 'pdf-parse';
+import mammoth from 'mammoth';
 
 export const config = {
   api: {
@@ -67,8 +69,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Read file buffer
     const fileBuffer = fs.readFileSync(file.filepath);
     
-    // Generate unique filename
-    const fileExtension = path.extname(file.originalFilename || file.newFilename);
+    // Generate unique filename - ensure clean extension without double periods
+    let fileExtension = path.extname(file.originalFilename || file.newFilename || '');
+    // Remove any leading dot from extension if present, we'll add it back
+    fileExtension = fileExtension.replace(/^\.+/, '.');
     const uniqueFilename = `${crypto.randomUUID()}${fileExtension}`;
     const storagePath = `chat-media/${uniqueFilename}`;
 
@@ -139,6 +143,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
+    // Extract text content from documents
+    let extractedText: string | null = null;
+    let tokenCount = Math.ceil((file.size || 0) / 4); // Default rough estimate
+
+    try {
+      if (file.mimetype === 'application/pdf') {
+        console.log(`Extracting text from PDF: ${file.originalFilename}...`);
+        const pdfData = await pdfParse(fileBuffer);
+        extractedText = pdfData.text;
+        tokenCount = Math.ceil(extractedText.length / 4);
+        console.log(`PDF text extracted: ${extractedText.length} characters`);
+      } else if (file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        console.log(`Extracting text from DOCX: ${file.originalFilename}...`);
+        const result = await mammoth.extractRawText({ buffer: fileBuffer });
+        extractedText = result.value;
+        tokenCount = Math.ceil(extractedText.length / 4);
+        console.log(`DOCX text extracted: ${extractedText.length} characters`);
+      } else if (file.mimetype === 'text/plain' || file.mimetype === 'text/markdown') {
+        console.log(`Reading text file: ${file.originalFilename}...`);
+        extractedText = fileBuffer.toString('utf-8');
+        tokenCount = Math.ceil(extractedText.length / 4);
+        console.log(`Text file read: ${extractedText.length} characters`);
+      }
+    } catch (extractError) {
+      console.error('Text extraction error:', extractError);
+      // Don't fail the upload if text extraction fails
+      // The file will still be available via OpenAI File ID or storage URL
+    }
+
     // Save file metadata to database
     const { error: dbError } = await supabaseAdmin
       .from('user_files')
@@ -153,8 +186,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         storage_path: storagePath,
         status: 'indexed',
         chat_file_type: chatFileType,
-        token_count: Math.ceil((file.size || 0) / 4), // Rough estimate
-        openai_file_id: openaiFileId
+        token_count: tokenCount,
+        openai_file_id: openaiFileId,
+        content_text: extractedText
       });
 
     if (dbError) {

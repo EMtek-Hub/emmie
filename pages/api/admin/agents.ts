@@ -29,6 +29,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           name,
           department,
           description,
+          system_prompt,
+          background_instructions,
           color,
           icon,
           is_active,
@@ -51,7 +53,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     } else if (req.method === 'PUT') {
       // Update agent configuration (simplified - no agent mode switching)
-      const { agentId, is_active } = req.body;
+      const { agentId, is_active, description, department, system_prompt, background_instructions } = req.body;
 
       if (!agentId) {
         return res.status(400).json({ error: 'Agent ID is required' });
@@ -65,6 +67,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (is_active !== undefined) {
         updateData.is_active = Boolean(is_active);
       }
+      if (description !== undefined) {
+        updateData.description = description;
+      }
+      if (department !== undefined) {
+        updateData.department = department;
+      }
+      if (system_prompt !== undefined) {
+        updateData.system_prompt = system_prompt;
+      }
+      if (background_instructions !== undefined) {
+        updateData.background_instructions = background_instructions;
+      }
 
       // Update the agent
       const { data: updatedAgent, error } = await supabaseAdmin
@@ -77,6 +91,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           name,
           department,
           description,
+          system_prompt,
+          background_instructions,
           color,
           icon,
           is_active,

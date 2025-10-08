@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { useState, useEffect } from "react";
+import { useDocumentsContext } from "./DocumentsContext-simple";
 import { 
   Home, 
   Grid, 
@@ -24,10 +25,12 @@ import {
   Code,
   Folder,
   FolderOpen,
-  Briefcase
+  Briefcase,
+  MoreVertical
 } from "lucide-react";
 import { useRouter } from "next/router";
 import { getToolConfig } from "../../lib/hubAuth";
+import DocumentManagementModal from "./DocumentManagementModal";
 
 /**
  * Enhanced Sidebar Component with Onyx-style layout and Chat/Projects toggle
@@ -65,8 +68,28 @@ export default function EnhancedSidebar({
   });
   const [isProjectsExpanded, setIsProjectsExpanded] = useState(true);
   const [projects, setProjects] = useState([]);
-  const [deleteConfirmingChatId, setDeleteConfirmingChatId] = useState(null);
   const [loadingProjects, setLoadingProjects] = useState(false);
+  const [isDocumentsExpanded, setIsDocumentsExpanded] = useState(false);
+  const [documentFolders, setDocumentFolders] = useState([]);
+  const [showDocumentManagement, setShowDocumentManagement] = useState(false);
+
+  // Get folders from DocumentsContext
+  const documentsContext = useDocumentsContext();
+  const { folders = [], files = [] } = documentsContext || {};
+
+  // Update documentFolders when folders change
+  useEffect(() => {
+    if (folders && folders.length > 0) {
+      // Map folders with file counts
+      const foldersWithCounts = folders.map(folder => ({
+        ...folder,
+        fileCount: folder.files?.length || 0
+      }));
+      setDocumentFolders(foldersWithCounts);
+    } else {
+      setDocumentFolders([]);
+    }
+  }, [folders]);
 
   // Load real projects data from API
   useEffect(() => {
@@ -276,34 +299,13 @@ export default function EnhancedSidebar({
     }));
   };
 
-  // Handle delete confirmation flow
+  // Handle instant delete
   const handleDeleteClick = (chatId, event) => {
-    event.stopPropagation();
-    setDeleteConfirmingChatId(chatId);
-  };
-
-  const handleConfirmDelete = (chatId, event) => {
     event.stopPropagation();
     if (onDeleteChat) {
       onDeleteChat(chatId);
     }
-    setDeleteConfirmingChatId(null);
   };
-
-  const handleCancelDelete = (event) => {
-    event.stopPropagation();
-    setDeleteConfirmingChatId(null);
-  };
-
-  // Reset confirmation state when clicking outside or changing views
-  useEffect(() => {
-    const handleClickOutside = () => {
-      setDeleteConfirmingChatId(null);
-    };
-    
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, []);
 
   const renderChatSection = (title, chats, sectionKey) => {
     if (chats.length === 0) return null;
@@ -327,60 +329,30 @@ export default function EnhancedSidebar({
         
         {isExpanded && (
           <div className="mt-1 space-y-0.5">
-            {chats.map((chat) => {
-              const isDeleting = deleteConfirmingChatId === chat.id;
-              
-              return (
-                <div
-                  key={chat.id}
-                  className={`w-full px-6 py-2 text-sm rounded-lg transition-all duration-200 truncate group ${
-                    isDeleting 
-                      ? 'bg-red-50 border border-red-200 text-red-900 cursor-default' 
-                      : currentChatId === chat.id 
-                        ? 'bg-gray-200 text-gray-900 cursor-pointer' 
-                        : 'text-gray-600 hover:bg-gray-100 cursor-pointer'
-                  }`}
-                  onClick={() => !isDeleting && onLoadChat && onLoadChat(chat.id)}
-                >
-                  {isDeleting ? (
-                    // Confirmation state
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-red-800">Delete this chat?</span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={(e) => handleConfirmDelete(chat.id, e)}
-                          className="p-1 rounded text-white bg-red-600 hover:bg-red-700 transition-colors"
-                          title="Delete"
-                        >
-                          <Check className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={handleCancelDelete}
-                          className="p-1 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-200 transition-colors"
-                          title="Cancel"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    // Normal state
-                    <div className="flex items-center justify-between">
-                      <span className="truncate flex-1 text-left">{chat.title || 'New Chat'}</span>
-                      {onDeleteChat && (
-                        <button
-                          onClick={(e) => handleDeleteClick(chat.id, e)}
-                          className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-red-600 transition-all"
-                          title="Delete chat"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
+            {chats.map((chat) => (
+              <div
+                key={chat.id}
+                className={`w-full px-6 py-2 text-sm rounded-lg transition-all duration-200 truncate group ${
+                  currentChatId === chat.id 
+                    ? 'bg-gray-200 text-gray-900 cursor-pointer' 
+                    : 'text-gray-600 hover:bg-gray-100 cursor-pointer'
+                }`}
+                onClick={() => onLoadChat && onLoadChat(chat.id)}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="truncate flex-1 text-left">{chat.title || 'New Chat'}</span>
+                  {onDeleteChat && (
+                    <button
+                      onClick={(e) => handleDeleteClick(chat.id, e)}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-red-600 transition-all"
+                      title="Delete chat"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
                   )}
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -401,12 +373,58 @@ export default function EnhancedSidebar({
         </button>
       </div>
 
-      {/* My Documents */}
+      {/* My Documents - Expandable with Manage Icon */}
       <div className="px-3 pb-2">
-        <button className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-          <FolderOpen className="w-4 h-4" />
-          <span>My Documents</span>
-        </button>
+        <div className="flex items-center gap-1">
+          <button 
+            onClick={() => setIsDocumentsExpanded(!isDocumentsExpanded)}
+            className="flex-1 flex items-center gap-3 px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors group"
+          >
+            {isDocumentsExpanded ? (
+              <ChevronDown className="w-3 h-3" />
+            ) : (
+              <ChevronRight className="w-3 h-3" />
+            )}
+            {isDocumentsExpanded ? (
+              <FolderOpen className="w-4 h-4" />
+            ) : (
+              <Folder className="w-4 h-4" />
+            )}
+            <span>My Documents</span>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowDocumentManagement(true);
+            }}
+            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Manage Documents"
+          >
+            <MoreVertical className="w-4 h-4" />
+          </button>
+        </div>
+        
+        {/* Expandable Folders */}
+        {isDocumentsExpanded && (
+          <div className="mt-1 ml-6 space-y-0.5">
+            {documentFolders.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-gray-400">
+                No folders yet
+              </div>
+            ) : (
+              documentFolders.map((folder) => (
+                <button
+                  key={folder.id}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors group"
+                >
+                  <Folder className="w-3 h-3" />
+                  <span className="flex-1 truncate">{folder.name}</span>
+                  <span className="text-xs text-gray-400">{folder.fileCount || 0}</span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       {/* Assistants Section */}
@@ -570,6 +588,11 @@ export default function EnhancedSidebar({
 
   if (isMobile) {
     return (
+      <>
+      <DocumentManagementModal 
+        isOpen={showDocumentManagement}
+        onClose={() => setShowDocumentManagement(false)}
+      />
       <aside className="bg-white h-full shadow-strong overflow-y-auto animate-slide-up w-80">
         <div className="flex flex-col h-full">
           {/* Header */}
@@ -617,32 +640,48 @@ export default function EnhancedSidebar({
             {currentView === "chat" ? <ChatViewContent /> : <ProjectsViewContent />}
           </div>
 
-          {/* User section */}
-          <div className="border-t border-gray-200 p-3">
-            <div className="flex items-center gap-3 p-2">
-              <div className="w-8 h-8 bg-gray-900 rounded-lg flex items-center justify-center text-white text-sm font-semibold">
-                {(user?.name || user?.email || 'G')[0].toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-gray-900 truncate">
-                  {user?.name || user?.email || "Guest"}
-                </div>
-              </div>
-              <button
-                onClick={handleSignOut}
-                className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
+      {/* User section */}
+      <div className="border-t border-gray-200 p-3">
+        <div className="flex items-center gap-3 p-2">
+          <div className="w-8 h-8 bg-gray-900 rounded-lg flex items-center justify-center text-white text-sm font-semibold">
+            {(user?.name || user?.email || 'G')[0].toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium text-gray-900 truncate">
+              {user?.name || user?.email || "Guest"}
             </div>
           </div>
+          <Link 
+            href="/settings"
+            className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+            title="Settings"
+          >
+            <Settings className="w-4 h-4" />
+          </Link>
+          <button
+            onClick={handleSignOut}
+            className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+            title="Sign out"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
-      </aside>
+      </div>
+      </div>
+    </aside>
+      </>
     );
   }
 
   return (
-    <aside className="bg-white border-r border-gray-200 h-screen sticky top-0 flex flex-col w-80">
+    <>
+      {/* Document Management Modal */}
+      <DocumentManagementModal 
+        isOpen={showDocumentManagement}
+        onClose={() => setShowDocumentManagement(false)}
+      />
+
+      <aside className="bg-white border-r border-gray-200 h-screen sticky top-0 flex flex-col w-80">
       {/* Header */}
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-center mb-4">
@@ -694,14 +733,23 @@ export default function EnhancedSidebar({
               {user?.name || user?.email || "Guest"}
             </div>
           </div>
+          <Link 
+            href="/settings"
+            className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+            title="Settings"
+          >
+            <Settings className="w-4 h-4" />
+          </Link>
           <button
             onClick={handleSignOut}
             className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+            title="Sign out"
           >
             <LogOut className="w-4 h-4" />
           </button>
         </div>
       </div>
     </aside>
+    </>
   );
 }

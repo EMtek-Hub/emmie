@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { requireHubAuth } from '../lib/authz';
 import GlobalModeToggle from '../components/admin/GlobalModeToggle';
-import AgentConfigurationCard from '../components/admin/AgentConfigurationCard';
+import { AgentConfigurationCard } from '../components/admin/AgentConfigurationCard';
 import ToolManagementPanel from '../components/admin/ToolManagementPanel';
 import AgentToolsPanel from '../components/admin/AgentToolsPanel';
 import { 
@@ -387,7 +387,7 @@ export default function UnifiedSettingsPage({ session }) {
           <AgentToolsPanel 
             agents={activeAgents}
             tools={tools}
-            onToolsUpdated={fetchTools}
+            onUpdate={fetchTools}
           />
         )}
 
