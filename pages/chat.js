@@ -63,7 +63,8 @@ import {
   Users,
   Laptop,
   Code,
-  Briefcase
+  Briefcase,
+  StopCircle
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -71,8 +72,11 @@ import Link from 'next/link';
 const TEMP_USER_MESSAGE_ID = -1;
 const TEMP_ASSISTANT_MESSAGE_ID = -2;
 const SYSTEM_MESSAGE_ID = -3;
+const ADMIN_GROUP_UUID = '0da01eb0-ad22-4654-9a08-67b8880f3664'; // EMtek-Hub-Admins Azure AD group
 
 export default function ChatPage({ session }) {
+  // Check if user is admin
+  const isAdmin = session?.user?.groups?.includes(ADMIN_GROUP_UUID);
   // State Management
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
@@ -107,6 +111,7 @@ export default function ChatPage({ session }) {
   const chatSessionIdRef = useRef(null);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
+  const wasStoppedManually = useRef(false);
 
   // Build complete message history including streaming
   const messageHistory = useMemo(() => {
@@ -319,16 +324,31 @@ export default function ChatPage({ session }) {
 
   // Stop message generation
   const stopGenerating = () => {
+    wasStoppedManually.current = true;
+
     if (abortController) {
       abortController.abort();
       setAbortController(null);
     }
+
+    setIsStreaming(false);
+    setStreamingMessage('');
     setChatState('input');
     setIsLoading(false);
   };
 
   // Handle message submission
-  const handleSubmit = async (e, messageOverride = null, regenerateMessageId = null) => {
+  const handleSubmit = async (
+    e,
+    messageOverride = null,
+    regenerateMessageId = null,
+    options = {}
+  ) => {
+    const {
+      skipUserMessageAppend = false,
+      existingMessages = null
+    } = options;
+
     e?.preventDefault();
     
     const messageToSend = messageOverride || message.trim();
@@ -337,24 +357,38 @@ export default function ChatPage({ session }) {
     // Create abort controller
     const controller = new AbortController();
     setAbortController(controller);
+    const signal = controller.signal;
     
-    // Create user message
+    const baseMessages = existingMessages ?? messages;
     const userMessageId = regenerateMessageId || Date.now();
-    const userMessage = {
-      id: userMessageId,
-      messageId: userMessageId,
-      role: 'user',
-      content: messageToSend,
-      timestamp: new Date(),
-      files: uploadedFiles.filter(f => f.uploaded)
-    };
+    let userMessage = skipUserMessageAppend
+      ? baseMessages.find((m) => m.messageId === userMessageId)
+      : null;
 
-    // Add user message to messages array
-    addMessage(userMessage);
-    
-    // Clear input and set loading states
-    setMessage('');
-    setUploadedFiles([]);
+    if (!userMessage) {
+      userMessage = {
+        id: userMessageId,
+        messageId: userMessageId,
+        role: 'user',
+        content: messageToSend,
+        timestamp: new Date(),
+        files: uploadedFiles.filter((f) => f.uploaded)
+      };
+    } else if (skipUserMessageAppend) {
+      userMessage = { ...userMessage, content: messageToSend };
+    }
+
+    if (!skipUserMessageAppend) {
+      addMessage(userMessage);
+      setMessage('');
+      setUploadedFiles([]);
+    } else if (regenerateMessageId) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.messageId === regenerateMessageId ? { ...m, content: messageToSend } : m
+        )
+      );
+    }
     setIsLoading(true);
     setIsStreaming(true);
     setStreamingMessage('');
@@ -385,8 +419,12 @@ export default function ChatPage({ session }) {
     }
 
     try {
-      // Build messages for API
-      const apiMessages = [...messages, userMessage].map(msg => ({
+      // Build messages for API without duplicating the user message during regeneration
+      const messageListForApi = skipUserMessageAppend
+        ? baseMessages
+        : [...baseMessages, userMessage];
+
+      const apiMessages = messageListForApi.map(msg => ({
         role: msg.role,
         content: msg.content
       }));
@@ -437,7 +475,7 @@ export default function ChatPage({ session }) {
           imageUrls: allImageUrls,  // Send all image URLs for vision analysis (from both drag-drop and document modal)
           selectedContext: selectedContext  // Send document context for AI to use
         }),
-        signal: controller.signal
+        signal
       });
 
       if (!response.ok) {
@@ -669,24 +707,33 @@ export default function ChatPage({ session }) {
                 chatSessionIdRef.current = data.chatId;
               }
 
-              // Refresh chat messages from server to replace the streaming placeholder
-              // and avoid duplicate images/text. We call loadChat asynchronously so we don't
-              // block the SSE processing loop.
-              (async () => {
-                try {
-                  const idToLoad = data.chatId || chatId;
-                  if (idToLoad) {
-                    await loadChat(idToLoad);
+              // Only reload from database if generation wasn't stopped manually
+              if (!wasStoppedManually.current) {
+                // Refresh chat messages from server to replace the streaming placeholder
+                // and avoid duplicate images/text. We call loadChat asynchronously so we don't
+                // block the SSE processing loop.
+                (async () => {
+                  try {
+                    const idToLoad = data.chatId || chatId;
+                    if (idToLoad) {
+                      await loadChat(idToLoad);
+                    }
+                  } catch (e) {
+                    console.warn('Failed to refresh chat after streaming done', e);
+                  } finally {
+                    // Ensure streaming state is cleared
+                    try { setIsStreaming(false); } catch (e) {}
+                    try { setStreamingMessage(''); } catch (e) {}
+                    try { setIsLoading(false); } catch (e) {}
                   }
-                } catch (e) {
-                  console.warn('Failed to refresh chat after streaming done', e);
-                } finally {
-                  // Ensure streaming state is cleared
-                  try { setIsStreaming(false); } catch (e) {}
-                  try { setStreamingMessage(''); } catch (e) {}
-                  try { setIsLoading(false); } catch (e) {}
-                }
-              })();
+                })();
+              } else {
+                // Reset the flag and clear streaming state
+                wasStoppedManually.current = false;
+                setIsStreaming(false);
+                setStreamingMessage('');
+                setIsLoading(false);
+              }
             }
             
           } catch (parseError) {
@@ -730,19 +777,27 @@ export default function ChatPage({ session }) {
       }
 
     } catch (error) {
-      console.error('Chat error:', error);
-      
-      const errorMessage = {
-        id: Date.now() + 1,
-        messageId: Date.now() + 1,
-        role: 'error',
-        content: error.name === 'AbortError' 
-          ? 'Message generation stopped.' 
-          : 'Sorry, I encountered an error. Please try again.',
-        timestamp: new Date()
-      };
-      
-      addMessage(errorMessage);
+      if (error?.name === 'AbortError') {
+        console.info('Chat generation aborted by user.');
+        const errorMessage = {
+          id: Date.now() + 1,
+          messageId: Date.now() + 1,
+          role: 'error',
+          content: 'Message generation stopped.',
+          timestamp: new Date()
+        };
+        addMessage(errorMessage);
+      } else {
+        console.error('Chat error:', error);
+        const errorMessage = {
+          id: Date.now() + 1,
+          messageId: Date.now() + 1,
+          role: 'error',
+          content: 'Sorry, I encountered an error. Please try again.',
+          timestamp: new Date()
+        };
+        addMessage(errorMessage);
+      }
     } finally {
       setIsLoading(false);
       setIsStreaming(false);
@@ -781,10 +836,19 @@ export default function ChatPage({ session }) {
     if (!lastUserMessage) return;
     
     // Remove the assistant message from the state
-    setMessages(prev => prev.filter(m => m.messageId !== messageId));
+    const updatedMessages = messages.filter(m => m.messageId !== messageId);
+    setMessages(updatedMessages);
     
-    // Re-submit the last user message to generate a new response
-    handleSubmit(null, lastUserMessage.content);
+    // Re-submit the last user message without duplicating it
+    handleSubmit(
+      null,
+      lastUserMessage.content,
+      lastUserMessage.messageId,
+      {
+        skipUserMessageAppend: true,
+        existingMessages: updatedMessages
+      }
+    );
   };
 
   // Handle message switching
@@ -827,6 +891,17 @@ export default function ChatPage({ session }) {
     setSelectedDocuments([]);
     setStreamingMessage('');
     setIsStreaming(false);
+    
+    // Reset to default Emmie assistant
+    const emmieAgent = agents.find(agent => 
+      agent.id === '10000000-0000-0000-0000-000000000001' || agent.name === 'Emmie Chat'
+    );
+    if (emmieAgent) {
+      setSelectedAgent(emmieAgent);
+    } else if (agents.length > 0) {
+      // Fallback to first agent if Emmie not found
+      setSelectedAgent(agents[0]);
+    }
   };
 
   const loadChat = async (chatId) => {
@@ -996,7 +1071,7 @@ export default function ChatPage({ session }) {
       />
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 h-full">
         {/* Top Bar with Mobile Menu and Settings */}
         <div className="lg:hidden fixed top-4 left-4 right-4 z-40 flex items-center justify-between">
           <button
@@ -1005,13 +1080,15 @@ export default function ChatPage({ session }) {
           >
             <MessageSquare className="w-5 h-5" />
           </button>
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="p-3 rounded-xl bg-white shadow-lg border border-gray-200 hover:bg-gray-50 text-emtek-navy transition-all duration-200"
-            title="Settings"
-          >
-            <Settings className="w-5 h-5" />
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="p-3 rounded-xl bg-white shadow-lg border border-gray-200 hover:bg-gray-50 text-emtek-navy transition-all duration-200"
+              title="Settings"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
 
@@ -1023,47 +1100,49 @@ export default function ChatPage({ session }) {
             onBack={() => setSelectedProject(null)}
           />
         ) : (
-          <div className="flex-1 overflow-y-auto bg-white relative">
+          <div className="flex-1 flex flex-col bg-white relative h-full">
             {messageHistory.length === 0 ? (
               <WelcomeScreen quickPrompts={quickPrompts} onPromptClick={setMessage} />
             ) : (
-              <div className="max-w-4xl mx-auto px-4 py-8 pb-40">
-              <div className="space-y-6">
-                {messageHistory.map((msg, index) => (
-                  <MessageBubble
-                    key={msg.messageId}
-                    message={msg}
-                    isStreaming={isLoading && index === messageHistory.length - 1}
-                    onEdit={handleEditMessage}
-                    onRegenerate={handleRegenerateMessage}
-                    onFeedback={handleFeedback}
-                    onContinue={msg.stopReason === StreamStopReason.CONTEXT_LENGTH ? handleContinueGenerating : undefined}
-                    onStop={isLoading && index === messageHistory.length - 1 ? stopGenerating : undefined}
-                  />
-                ))}
-                
-                {/* Show thinking animation when loading and not streaming */}
-                {isLoading && !isStreaming && (
-                  <LoadingMessage 
-                    state="thinking"
-                    userMessage={message}
-                    chatState={chatState}
-                  />
-                )}
-                
-                {/* Show smart thinking animation when processing but not yet streaming */}
-                {isLoading && chatState === 'streaming' && !streamingMessage && (
-                  <SmartThinkingIndicator 
-                    isStreaming={false}
-                    userMessage={messages[messages.length - 1]?.content || ''}
-                    className="animate-fade-in-up"
-                  />
-                )}
-                
-                <div ref={messagesEndRef} />
+              <div className="flex-1 overflow-y-auto">
+                <div className="max-w-4xl mx-auto px-4 py-8 pb-40">
+                  <div className="space-y-6">
+                    {messageHistory.map((msg, index) => (
+                      <MessageBubble
+                        key={msg.messageId}
+                        message={msg}
+                        isStreaming={isLoading && index === messageHistory.length - 1}
+                        onEdit={handleEditMessage}
+                        onRegenerate={handleRegenerateMessage}
+                        onFeedback={handleFeedback}
+                        onContinue={msg.stopReason === StreamStopReason.CONTEXT_LENGTH ? handleContinueGenerating : undefined}
+                        onStop={isLoading && index === messageHistory.length - 1 ? stopGenerating : undefined}
+                      />
+                    ))}
+                    
+                    {/* Show thinking animation when loading and not streaming */}
+                    {isLoading && !isStreaming && (
+                      <LoadingMessage 
+                        state="thinking"
+                        userMessage={message}
+                        chatState={chatState}
+                      />
+                    )}
+                    
+                    {/* Show smart thinking animation when processing but not yet streaming */}
+                    {isLoading && chatState === 'streaming' && !streamingMessage && (
+                      <SmartThinkingIndicator 
+                        isStreaming={false}
+                        userMessage={messages[messages.length - 1]?.content || ''}
+                        className="animate-fade-in-up"
+                      />
+                    )}
+                    
+                    <div ref={messagesEndRef} />
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            )}
           
           {/* Floating Input */}
           <div className="sticky bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-white via-white to-transparent">
@@ -1073,6 +1152,7 @@ export default function ChatPage({ session }) {
                 setMessage={setMessage}
                 onSubmit={handleSubmit}
                 isLoading={isLoading}
+                stopGenerating={stopGenerating}
                 onFileUpload={handleFileUpload}
                 uploadedFiles={uploadedFiles}
                 setUploadedFiles={setUploadedFiles}
@@ -1342,18 +1422,6 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming, 
           </div>
         )}
         
-        {/* Stop button for streaming */}
-        {isStreaming && onStop && (
-          <div className="flex items-center gap-2 ml-9 mb-4">
-            <button 
-              onClick={onStop}
-              className="px-3 py-1 text-xs text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
-            >
-              Stop generating
-            </button>
-          </div>
-        )}
-        
         {/* Error messages */}
         {isError && (
           <div className="flex items-start gap-3 mb-4">
@@ -1377,7 +1445,8 @@ function ChatInput({
   message, 
   setMessage, 
   onSubmit, 
-  isLoading, 
+  isLoading,
+  stopGenerating,
   onFileUpload, 
   uploadedFiles,
   setUploadedFiles,
@@ -1440,10 +1509,76 @@ function ChatInput({
     adjustTextareaHeight();
   }, [message]);
 
+  // Get agent-specific styling
+  const getAgentInputStyling = () => {
+    if (!selectedAgent) {
+      return {
+        borderColor: 'border-gray-200',
+        bgGradient: '',
+        accentColor: 'bg-gray-900'
+      };
+    }
+
+    // Map agent department or name to color schemes
+    const deptName = (selectedAgent.department || selectedAgent.name || '').toLowerCase();
+    
+    if (deptName.includes('drafting') || deptName.includes('design')) {
+      return {
+        borderColor: 'border-purple-200',
+        bgGradient: 'bg-gradient-to-br from-purple-50/50 to-white',
+        accentColor: 'bg-purple-600 hover:bg-purple-700'
+      };
+    }
+    if (deptName.includes('engineer')) {
+      return {
+        borderColor: 'border-orange-200',
+        bgGradient: 'bg-gradient-to-br from-orange-50/50 to-white',
+        accentColor: 'bg-orange-600 hover:bg-orange-700'
+      };
+    }
+    if (deptName.includes('hr') || deptName.includes('human')) {
+      return {
+        borderColor: 'border-green-200',
+        bgGradient: 'bg-gradient-to-br from-green-50/50 to-white',
+        accentColor: 'bg-green-600 hover:bg-green-700'
+      };
+    }
+    if (deptName.includes('it') || deptName.includes('support')) {
+      return {
+        borderColor: 'border-cyan-200',
+        bgGradient: 'bg-gradient-to-br from-cyan-50/50 to-white',
+        accentColor: 'bg-cyan-600 hover:bg-cyan-700'
+      };
+    }
+    if (deptName.includes('search')) {
+      return {
+        borderColor: 'border-indigo-200',
+        bgGradient: 'bg-gradient-to-br from-indigo-50/50 to-white',
+        accentColor: 'bg-indigo-600 hover:bg-indigo-700'
+      };
+    }
+    if (deptName.includes('art') || deptName.includes('creative')) {
+      return {
+        borderColor: 'border-pink-200',
+        bgGradient: 'bg-gradient-to-br from-pink-50/50 to-white',
+        accentColor: 'bg-pink-600 hover:bg-pink-700'
+      };
+    }
+    
+    // Default Emmie styling (blue)
+    return {
+      borderColor: 'border-blue-200',
+      bgGradient: 'bg-gradient-to-br from-blue-50/30 to-white',
+      accentColor: 'bg-gray-900 hover:bg-gray-800'
+    };
+  };
+
+  const agentStyling = getAgentInputStyling();
+
   return (
     <form onSubmit={handleSubmit} className="relative">
       {/* Main input area */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-lg">
+      <div className={`border-2 rounded-xl shadow-lg transition-all duration-300 ${agentStyling.borderColor} ${agentStyling.bgGradient}`}>
         <div className="p-4">
           <textarea
             ref={textareaRef}
@@ -1451,7 +1586,7 @@ function ChatInput({
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder="Talk to Emmie"
+            placeholder={selectedAgent?.input_placeholder || `Talk to ${selectedAgent?.name || 'Emmie'}`}
             className="w-full resize-none bg-transparent border-0 outline-none placeholder-gray-400 text-gray-900 text-sm leading-6"
             style={{ minHeight: '60px', maxHeight: '200px' }}
             disabled={isLoading}
@@ -1552,22 +1687,25 @@ function ChatInput({
             )}
           </div>
           
-          {/* Send button with thinking status */}
-          <button
-            type="submit"
-            disabled={!message.trim() || isLoading}
-            className={`p-2 rounded-full transition-all duration-200 ${
-              isLoading 
-                ? 'bg-blue-500 animate-thinking-pulse cursor-not-allowed' 
-                : 'bg-gray-900 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed'
-            } text-white`}
-          >
-            {isLoading ? (
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
+          {/* Send/Stop button */}
+          {isLoading ? (
+            <button
+              type="button"
+              onClick={stopGenerating}
+              className="p-2 rounded-full bg-red-500 hover:bg-red-600 text-white transition-all duration-200"
+              title="Stop generating"
+            >
+              <StopCircle className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!message.trim()}
+              className="p-2 rounded-full bg-gray-900 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all duration-200"
+            >
               <Send className="w-4 h-4" />
-            )}
-          </button>
+            </button>
+          )}
         </div>
       </div>
     </form>
