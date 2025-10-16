@@ -3,13 +3,24 @@ import MarkdownIt from 'markdown-it';
 import footnote from 'markdown-it-footnote';
 import tasklists from 'markdown-it-task-lists';
 import container from 'markdown-it-container';
+import hljs from 'highlight.js';
 
-// Configure markdown renderer
+// Configure markdown renderer with syntax highlighting
 export const md = new MarkdownIt({ 
   linkify: true, 
   breaks: true,
   html: true,
-  typographer: true
+  typographer: true,
+  highlight: function (str, lang) {
+    if (lang && hljs.getLanguage(lang)) {
+      try {
+        const highlighted = hljs.highlight(str, { language: lang, ignoreIllegals: true }).value;
+        return `<pre class="hljs-code-block"><div class="code-block-header"><span class="code-block-language">${lang}</span><button class="copy-code-button" data-code="${encodeURIComponent(str)}" title="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></div><code class="hljs language-${lang}">${highlighted}</code></pre>`;
+      } catch (__) {}
+    }
+    // No language specified or language not found
+    return `<pre class="hljs-code-block"><div class="code-block-header"><button class="copy-code-button" data-code="${encodeURIComponent(str)}" title="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></div><code class="hljs">${md.utils.escapeHtml(str)}</code></pre>`;
+  }
 })
   .use(footnote)
   .use(tasklists)

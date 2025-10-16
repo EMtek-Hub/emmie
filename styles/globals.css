@@ -277,53 +277,136 @@
     display: none;
   }
 
-  /* Force code blocks to use white text on dark background */
-  pre code,
-  pre code *,
-  pre span,
-  pre .token,
-  pre .keyword,
-  pre .string,
-  pre .function,
-  pre .number,
-  pre .operator,
-  pre .comment,
-  pre .punctuation,
-  pre .variable,
-  pre .property,
-  pre .selector,
-  pre .attr-name,
-  pre .attr-value,
-  pre .tag,
-  pre .hljs-keyword,
-  pre .hljs-string,
-  pre .hljs-function,
-  pre .hljs-number,
-  pre .hljs-comment,
-  pre .hljs-variable,
-  pre .hljs-literal,
-  pre .hljs-built_in,
-  pre .hljs-title {
-    color: white !important;
-    background: transparent !important;
-    text-shadow: none !important;
-  }
+}
 
-  /* Ensure code blocks have proper styling */
-  pre {
-    background: rgb(17 24 39) !important; /* gray-900 */
-    color: white !important;
-    font-size: 1.125rem !important; /* Larger font - text-lg */
-    line-height: 1.75 !important; /* More spacing */
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
-  }
+/* Highlight.js Theme - GitHub Dark Style with ChatGPT-like colors */
+.hljs-code-block {
+  @apply relative rounded-lg overflow-hidden mb-4 bg-[#2d2d2d] shadow-lg;
+}
 
-  /* Override any markdown-it generated highlighting */
-  .prose pre,
-  .prose pre code,
-  .prose pre code *,
-  .prose pre span {
-    color: white !important;
-    background: rgb(17 24 39) !important;
-  }
+.code-block-header {
+  @apply flex items-center justify-between px-4 py-2 bg-[#1a1a1a] border-b border-gray-700;
+}
+
+.code-block-language {
+  @apply text-xs font-medium text-gray-300 uppercase tracking-wide;
+}
+
+.copy-code-button {
+  @apply flex items-center justify-center p-2 text-gray-400 bg-transparent border-0 rounded-md hover:bg-gray-700 hover:text-white transition-all duration-200 cursor-pointer;
+}
+
+.copy-code-button:active {
+  @apply scale-95;
+}
+
+.copy-code-button.copied {
+  @apply bg-green-600 text-white;
+}
+
+.copy-code-button.copy-error {
+  @apply bg-red-600 text-white;
+}
+
+.copy-code-button svg {
+  @apply w-4 h-4;
+}
+
+.hljs-code-block pre {
+  @apply m-0 p-4 bg-[#2d2d2d] overflow-x-auto;
+}
+
+.hljs-code-block code {
+  @apply block text-sm leading-relaxed font-mono text-gray-100;
+}
+
+/* Syntax highlighting colors - ChatGPT style */
+.hljs-comment,
+.hljs-quote {
+  @apply text-gray-500 italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst {
+  @apply text-[#ff7b72] font-semibold;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag .hljs-attr {
+  @apply text-[#79c0ff];
+}
+
+.hljs-string,
+.hljs-doctag {
+  @apply text-[#a5d6ff];
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-selector-id {
+  @apply text-[#d2a8ff] font-semibold;
+}
+
+.hljs-type,
+.hljs-class .hljs-title {
+  @apply text-[#ffa657];
+}
+
+.hljs-tag,
+.hljs-name,
+.hljs-attribute {
+  @apply text-[#7ee787];
+}
+
+.hljs-regexp,
+.hljs-link {
+  @apply text-[#a5d6ff];
+}
+
+.hljs-symbol,
+.hljs-bullet {
+  @apply text-[#79c0ff];
+}
+
+.hljs-built_in,
+.hljs-builtin-name {
+  @apply text-[#ffa657];
+}
+
+.hljs-meta {
+  @apply text-[#8b949e];
+}
+
+.hljs-deletion {
+  @apply bg-[#490202] text-[#ff7b72];
+}
+
+.hljs-addition {
+  @apply bg-[#0f3b17] text-[#7ee787];
+}
+
+.hljs-emphasis {
+  @apply italic;
+}
+
+.hljs-strong {
+  @apply font-bold;
+}
+
+/* Inline code styling */
+code:not(.hljs) {
+  @apply px-1.5 py-0.5 rounded-md bg-gray-100 text-[#e83e8c] text-sm font-mono border border-gray-200;
+}
+
+.prose code:not(.hljs) {
+  @apply px-1.5 py-0.5 rounded-md bg-gray-100 text-[#e83e8c] text-sm font-mono border border-gray-200;
+}
+
+/* Ensure proper text color in code blocks */
+.hljs {
+  @apply text-gray-100 bg-[#2d2d2d];
 }

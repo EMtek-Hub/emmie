@@ -12,7 +12,9 @@ import {
   Settings,
   Brain,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Check,
+  Copy
 } from 'lucide-react';
 
 // Tool visualization component
@@ -159,6 +161,7 @@ export function EnhancedMessage({
   const [editedContent, setEditedContent] = useState(message.content);
   const textareaRef = useRef(null);
   const [isHovered, setIsHovered] = useState(false);
+  const contentRef = useRef(null);
 
   useEffect(() => {
     if (isEditing && textareaRef.current) {
@@ -167,6 +170,98 @@ export function EnhancedMessage({
       textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
     }
   }, [isEditing]);
+
+  // Set up global click handler for copy buttons
+  useEffect(() => {
+    const successIcon =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+    const errorIcon =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
+
+    const copyWithFallback = async (text) => {
+      if (!text) {
+        throw new Error('No code content found');
+      }
+
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      textarea.style.pointerEvents = 'none';
+      textarea.style.top = '0';
+      textarea.style.left = '0';
+
+      document.body.appendChild(textarea);
+      textarea.select();
+
+      try {
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (!successful) {
+          throw new Error('Legacy copy command was unsuccessful');
+        }
+      } catch (err) {
+        document.body.removeChild(textarea);
+        throw err instanceof Error ? err : new Error('Legacy copy command failed');
+      }
+    };
+
+    const handleDocumentClick = async (e) => {
+      const target = e.target;
+      
+      // Find if click was on or inside a copy button
+      let button = null;
+      if (target.classList?.contains('copy-code-button')) {
+        button = target;
+      } else if (target.closest) {
+        button = target.closest('.copy-code-button');
+      }
+
+      if (!button) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const originalHTML = button.innerHTML;
+      const encoded = button.getAttribute('data-code');
+      let code = encoded ? decodeURIComponent(encoded) : '';
+
+      if (!code) {
+        const codeElement = button.closest('.hljs-code-block')?.querySelector('code');
+        code = codeElement?.textContent || codeElement?.innerText || '';
+      }
+
+      try {
+        await copyWithFallback(code);
+        button.innerHTML = successIcon;
+        button.classList.add('copied');
+        button.title = 'Copied!';
+      } catch (err) {
+        console.error('Failed to copy code:', err);
+        button.innerHTML = errorIcon;
+        button.classList.add('copy-error');
+        button.title = 'Failed to copy';
+      } finally {
+        setTimeout(() => {
+          button.innerHTML = originalHTML;
+          button.classList.remove('copied', 'copy-error');
+          button.title = 'Copy code';
+        }, 2000);
+      }
+    };
+
+    document.addEventListener('click', handleDocumentClick);
+
+    return () => {
+      document.removeEventListener('click', handleDocumentClick);
+    };
+  }, []);
 
   const handleEditSubmit = () => {
     if (onEdit) {
@@ -331,7 +426,7 @@ export function EnhancedMessage({
                 )}
               </div>
             ) : (
-              <div className="prose prose-sm max-w-none">
+              <div className="prose prose-sm max-w-none" ref={contentRef}>
                 <div dangerouslySetInnerHTML={{ 
                   __html: renderMarkdown(message.content || '') 
                 }} />

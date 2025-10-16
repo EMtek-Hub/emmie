@@ -437,16 +437,18 @@ export default function EnhancedSidebar({
             <button
               key={assistant.id}
               onClick={() => onAssistantChange && onAssistantChange(assistant)}
-              className={`w-full flex items-center gap-3 px-3 py-2 text-left text-sm rounded-lg transition-colors ${
+              className={`w-full flex items-center gap-3 px-3 py-2 text-left text-sm rounded-lg transition-all duration-200 ${
                 selectedAssistant?.id === assistant.id
-                  ? 'bg-gray-200 text-gray-900'
-                  : 'text-gray-700 hover:bg-gray-100'
+                  ? 'bg-gradient-to-r from-blue-50 to-indigo-50 text-gray-900 border-2 border-blue-300 shadow-sm'
+                  : 'text-gray-700 hover:bg-gray-100 border-2 border-transparent'
               }`}
             >
-              {assistant.icon}
-              <span>{assistant.name}</span>
+              <div className={selectedAssistant?.id === assistant.id ? 'text-blue-600' : ''}>
+                {assistant.icon}
+              </div>
+              <span className={selectedAssistant?.id === assistant.id ? 'font-semibold' : ''}>{assistant.name}</span>
               {selectedAssistant?.id === assistant.id && (
-                <Check className="w-4 h-4 text-gray-600 ml-auto" />
+                <Check className="w-4 h-4 text-blue-600 ml-auto" />
               )}
             </button>
           ))}
@@ -611,8 +613,8 @@ export default function EnhancedSidebar({
               </button>
             </div>
             
-            {/* View Toggle */}
-            <div className="flex items-center bg-gray-100 rounded-lg p-1">
+            {/* View Toggle - HIDDEN FOR ALPHA RELEASE */}
+            {/* <div className="flex items-center bg-gray-100 rounded-lg p-1">
               <button
                 onClick={() => toggleView("chat")}
                 className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
@@ -633,7 +635,7 @@ export default function EnhancedSidebar({
               >
                 Projects
               </button>
-            </div>
+            </div> */}
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -693,8 +695,8 @@ export default function EnhancedSidebar({
           />
         </div>
         
-        {/* View Toggle */}
-        <div className="flex items-center bg-gray-100 rounded-lg p-1">
+        {/* View Toggle - HIDDEN FOR ALPHA RELEASE */}
+        {/* <div className="flex items-center bg-gray-100 rounded-lg p-1">
           <button
             onClick={() => toggleView("chat")}
             className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
@@ -715,7 +717,7 @@ export default function EnhancedSidebar({
           >
             Projects
           </button>
-        </div>
+        </div> */}
       </div>
 
       <div className="flex-1 overflow-y-auto">
